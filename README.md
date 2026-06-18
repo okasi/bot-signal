@@ -1,6 +1,6 @@
 # is-suspicious-client
 
-Detect headless browsers, automation frameworks, and suspicious client behavior in the browser.
+Detect headless browsers, automation frameworks, and suspicious client behavior in the browser and on the server.
 
 ## Install
 
@@ -8,12 +8,13 @@ Detect headless browsers, automation frameworks, and suspicious client behavior 
 npm install is-suspicious-client
 ```
 
-## Two detection modes
+## Detection modes
 
-| Mode | API | Speed | What it checks |
+| Mode | API | Environment | What it checks |
 | --- | --- | --- | --- |
-| **Instant** | `detectInstantClient` | Immediate | Environment/fingerprint signals (WebDriver, WebGL, UA, plugins, etc.) |
-| **Behavioral** | `createBehavioralClientDetector` | Long-running | Mouse, scroll, and typing patterns with weighted suspicion scoring |
+| **Instant** | `detectInstantClient` | Browser | Environment/fingerprint signals (WebDriver, WebGL, UA, plugins, etc.) |
+| **Behavioral** | `createBehavioralClientDetector` | Browser | Mouse, scroll, and typing patterns with weighted suspicion scoring |
+| **Server** | `detectServerClient` | Node/server | IP/timezone mismatch, TLS fingerprint, datacenter IP, Accept-Language geo |
 
 ---
 
@@ -146,17 +147,92 @@ const result = analyzeBehavioralSamples({
 
 ---
 
+## Server detection
+
+Pure functions for Node.js, edge workers, or API gateways. No browser APIs required — pass request metadata your infrastructure already collects.
+
+```ts
+import { detectServerClient } from "is-suspicious-client";
+
+// In an Express/Fastify/hono handler:
+const result = detectServerClient({
+  ipTimezone: geo.timezone,              // from GeoIP e.g. MaxMind
+  clientTimezone: req.headers["x-timezone"], // from client beacon/header
+  tlsFingerprint: req.headers["x-ja3-hash"], // from nginx/Cloudflare/envoy
+  userAgent: req.headers["user-agent"],
+  acceptLanguage: req.headers["accept-language"],
+  ipCountry: geo.country,
+  isDatacenterIp: geo.isHosting,
+});
+
+if (!result.isLegitClient) {
+  return res.status(403).json({ reason: result.signals });
+}
+```
+
+### Where to get inputs
+
+| Field | Typical source |
+| --- | --- |
+| `ipTimezone` / `ipCountry` / `isDatacenterIp` | GeoIP database (MaxMind, ipinfo, Cloudflare `CF-IPCountry`) |
+| `clientTimezone` | Client beacon (`Intl.DateTimeFormat().resolvedOptions().timeZone`) via `X-Timezone` header or cookie |
+| `tlsFingerprint` | Reverse proxy JA3/JA4 (`ssl_ja3_hash` in nginx, Cloudflare `cf.tls_cipher`, etc.) |
+
+### Server signals
+
+| Signal | Weight | Confidence | Description |
+| --- | --- | --- | --- |
+| `timezone-mismatch` | 0.45 | high | Client timezone offset differs from GeoIP timezone |
+| `known-suspicious-tls` | 0.55 | high | JA3 matches Python, curl, Go, or other scripting clients |
+| `tls-user-agent-mismatch` | 0.50 | high | TLS fingerprint family conflicts with User-Agent |
+| `missing-tls-fingerprint` | 0.25 | medium | Browser UA without TLS fingerprint (when `requireTlsFingerprint: true`) |
+| `accept-language-geo-mismatch` | 0.20 | low | Accept-Language missing GeoIP country code |
+| `datacenter-browser-mismatch` | 0.35 | medium | Hosting/datacenter IP with residential browser UA |
+
+### Server result
+
+```ts
+interface ServerClientResult {
+  suspicionScore: number;
+  confidence: "high" | "medium" | "low";
+  signals: ServerSignal[];
+  isLegitClient: boolean;
+  context: { ipTimezone?, clientTimezone?, tlsFingerprint?, userAgent?, ipCountry? };
+}
+```
+
+### Custom TLS blocklist
+
+```ts
+detectServerClient(context, {
+  suspiciousTlsFingerprints: ["abc123..."],
+  timezoneToleranceMinutes: 90,
+  scoreThreshold: 0.5,
+  requireTlsFingerprint: true,
+});
+```
+
+Built-in suspicious TLS fingerprints are exported as `KNOWN_SUSPICIOUS_TLS_FINGERPRINTS`.
+
+---
+
 ## API reference
 
 ```ts
 import {
-  // Instant
+  // Instant (browser)
   detectInstantClient,
   detectInstantClientAsync,
 
-  // Behavioral
+  // Behavioral (browser)
   createBehavioralClientDetector,
   analyzeBehavioralSamples,
+
+  // Server (Node/edge)
+  detectServerClient,
+  isTimezoneMismatch,
+  isTlsUserAgentMismatch,
+  KNOWN_SUSPICIOUS_TLS_FINGERPRINTS,
 
   // Helpers
   checkShaderF16Support,

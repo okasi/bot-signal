@@ -27,6 +27,24 @@ export {
   isSuspiciousWebDriverDescriptor,
   isSuspiciousWindowDimensions,
 } from "./detectSuspiciousClient.js";
+export {
+  aggregateServerSuspicionScore,
+  buildServerSignals,
+  detectServerClient,
+  findTlsFingerprintEntry,
+  getTimezoneOffsetMinutes,
+  getUserAgentFamily,
+  isAcceptLanguageGeoMismatch,
+  isBrowserLikeUserAgent,
+  isDatacenterBrowserMismatch,
+  isKnownSuspiciousTlsFingerprint,
+  isMissingTlsFingerprint,
+  isTimezoneMismatch,
+  isTlsUserAgentMismatch,
+  KNOWN_SUSPICIOUS_TLS_FINGERPRINTS,
+  normalizeTlsFingerprint,
+  resolveServerConfidence,
+} from "./server/index.js";
 export type {
   BehavioralClientDetector,
   BehavioralClientResult,
@@ -36,6 +54,15 @@ export type {
   BehavioralSignal,
   ConfidenceLevel,
 } from "./behavioral/types.js";
+export type {
+  ServerClientContext,
+  ServerClientResult,
+  ServerConfidenceLevel,
+  ServerDetectorOptions,
+  ServerSignal,
+  TlsFingerprintEntry,
+  UserAgentFamily,
+} from "./server/index.js";
 export type {
   ExtendedDocument,
   ExtendedNavigator,
