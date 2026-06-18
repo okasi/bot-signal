@@ -1,3 +1,4 @@
+import { enrichServerContext } from "./enrich.js";
 import { buildServerSignals } from "./analysis.js";
 import type {
   ConfidenceLevel,
@@ -6,6 +7,7 @@ import type {
   ServerDetectorOptions,
   ServerSignal,
 } from "./types.js";
+import type { EnrichedServerContext } from "./enrich.js";
 
 export function aggregateServerSuspicionScore(signals: ServerSignal[]): number {
   const triggered = signals.filter((signal) => signal.triggered);
@@ -42,6 +44,24 @@ export function resolveServerConfidence(
   return "low";
 }
 
+function buildResultContext(
+  context: EnrichedServerContext,
+): ServerClientResult["context"] {
+  return {
+    clientIp: context.clientIp,
+    ipTimezone: context.ipTimezone,
+    clientTimezone: context.clientTimezone,
+    tlsFingerprint: context.tlsFingerprint,
+    userAgent: context.userAgent,
+    ipCountry: context.ipCountry,
+    isDatacenterIp: context.isDatacenterIp,
+    isAbuseListedIp: context.isAbuseListedIp,
+    isIcloudPrivateRelay: context.isIcloudPrivateRelay,
+    datacenterProvider: context.datacenterProvider,
+    icloudRelayCountry: context.icloudRelayCountry,
+  };
+}
+
 export function detectServerClient(
   context: ServerClientContext,
   options: ServerDetectorOptions = {},
@@ -56,12 +76,14 @@ export function detectServerClient(
     confidence,
     signals,
     isLegitClient: suspicionScore < scoreThreshold,
-    context: {
-      ipTimezone: context.ipTimezone,
-      clientTimezone: context.clientTimezone,
-      tlsFingerprint: context.tlsFingerprint,
-      userAgent: context.userAgent,
-      ipCountry: context.ipCountry,
-    },
+    context: buildResultContext(context),
   };
+}
+
+export async function detectServerClientAsync(
+  context: ServerClientContext,
+  options: ServerDetectorOptions = {},
+): Promise<ServerClientResult> {
+  const enriched = await enrichServerContext(context, options);
+  return detectServerClient(enriched, options);
 }

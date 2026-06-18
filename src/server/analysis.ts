@@ -107,5 +107,19 @@ export function buildServerSignals(
       0.35,
       "medium",
     ),
+    createSignal(
+      "abuse-listed-ip",
+      "IP appears on the AbuseIPDB 30-day blocklist",
+      Boolean(context.isAbuseListedIp),
+      0.6,
+      "high",
+    ),
+    createSignal(
+      "icloud-private-relay",
+      "IP is an iCloud Private Relay egress address",
+      Boolean(context.isIcloudPrivateRelay),
+      0.15,
+      "low",
+    ),
   ];
 }

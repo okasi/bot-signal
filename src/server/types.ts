@@ -10,6 +10,8 @@ export interface ServerSignal {
 }
 
 export interface ServerClientContext {
+  /** Client IP address — enables GeoIP lookup and blocklist checks when set */
+  clientIp?: string;
   /** IANA timezone from GeoIP lookup of the client IP (e.g. `America/New_York`) */
   ipTimezone?: string;
   /** Timezone reported by the client via header, cookie, or JS beacon */
@@ -22,8 +24,12 @@ export interface ServerClientContext {
   acceptLanguage?: string;
   /** ISO 3166-1 alpha-2 country code from GeoIP */
   ipCountry?: string;
-  /** Whether GeoIP/ASN data classifies the IP as datacenter or hosting */
+  /** Whether the IP is a known datacenter/hosting range (auto-detected or manual) */
   isDatacenterIp?: boolean;
+  /** Whether the IP appears on the bundled AbuseIPDB 30-day blocklist */
+  isAbuseListedIp?: boolean;
+  /** Whether the IP is in Apple's iCloud Private Relay egress ranges */
+  isIcloudPrivateRelay?: boolean;
 }
 
 export interface ServerDetectorOptions {
@@ -35,6 +41,12 @@ export interface ServerDetectorOptions {
   suspiciousTlsFingerprints?: string[];
   /** When true, flags browser-like user agents that omit a TLS fingerprint */
   requireTlsFingerprint?: boolean;
+  /** Directory containing `data/*.csv` blocklists (defaults to package `data/`) */
+  dataDir?: string;
+  /** When false, skips `doc999tor-fast-geoip` lookup for `clientIp` */
+  lookupGeo?: boolean;
+  /** When false, skips bundled abuse/datacenter/iCloud relay list checks */
+  checkIpLists?: boolean;
 }
 
 export interface ServerClientResult {
@@ -43,10 +55,16 @@ export interface ServerClientResult {
   signals: ServerSignal[];
   isLegitClient: boolean;
   context: {
+    clientIp?: string;
     ipTimezone?: string;
     clientTimezone?: string;
     tlsFingerprint?: string;
     userAgent?: string;
     ipCountry?: string;
+    isDatacenterIp?: boolean;
+    isAbuseListedIp?: boolean;
+    isIcloudPrivateRelay?: boolean;
+    datacenterProvider?: string;
+    icloudRelayCountry?: string;
   };
 }

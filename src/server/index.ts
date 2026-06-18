@@ -1,7 +1,19 @@
 export { buildServerSignals } from "./analysis.js";
-export { detectServerClient } from "./scoring.js";
+export { enrichServerContext } from "./enrich.js";
+export type { EnrichedServerContext } from "./enrich.js";
+export { lookupClientIpGeo } from "./geoip.js";
+export type { IpGeoResult } from "./geoip.js";
+export {
+  createIpListChecker,
+  getDefaultIpDataDir,
+  getIpListChecker,
+  resetIpListCheckerCache,
+} from "./ipLists.js";
+export type { IpListChecker, IpListMatchResult } from "./ipLists.js";
 export {
   aggregateServerSuspicionScore,
+  detectServerClient,
+  detectServerClientAsync,
   resolveServerConfidence,
 } from "./scoring.js";
 export {

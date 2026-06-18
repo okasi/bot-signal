@@ -149,20 +149,22 @@ const result = analyzeBehavioralSamples({
 
 ## Server detection
 
-Pure functions for Node.js, edge workers, or API gateways. No browser APIs required — pass request metadata your infrastructure already collects.
+Pure functions for Node.js, edge workers, or API gateways. Pass `clientIp` and the library will:
+
+1. **GeoIP lookup** via [`doc999tor-fast-geoip`](https://www.npmjs.com/package/doc999tor-fast-geoip) (country + timezone)
+2. **Datacenter detection** against bundled [ipcat](https://github.com/client9/ipcat) hosting ranges
+3. **AbuseIPDB blocklist** check (global 30-day list, updated weekly)
+4. **iCloud Private Relay** egress range check (all countries)
 
 ```ts
-import { detectServerClient } from "is-suspicious-client";
+import { detectServerClientAsync } from "is-suspicious-client";
 
-// In an Express/Fastify/hono handler:
-const result = detectServerClient({
-  ipTimezone: geo.timezone,              // from GeoIP e.g. MaxMind
-  clientTimezone: req.headers["x-timezone"], // from client beacon/header
-  tlsFingerprint: req.headers["x-ja3-hash"], // from nginx/Cloudflare/envoy
+const result = await detectServerClientAsync({
+  clientIp: req.ip,
+  clientTimezone: req.headers["x-timezone"], // from client JS beacon
+  tlsFingerprint: req.headers["x-ja3-hash"],
   userAgent: req.headers["user-agent"],
   acceptLanguage: req.headers["accept-language"],
-  ipCountry: geo.country,
-  isDatacenterIp: geo.isHosting,
 });
 
 if (!result.isLegitClient) {
@@ -170,24 +172,45 @@ if (!result.isLegitClient) {
 }
 ```
 
-### Where to get inputs
+Use `detectServerClient` for sync checks when you already have GeoIP fields populated.
+
+### Bundled IP data (updated weekly)
+
+| File | Source | Purpose |
+| --- | --- | --- |
+| `data/datacenter_ip_ranges.csv` | [ipcat/datacenters.csv](https://github.com/client9/ipcat) | AWS, OVH, Hetzner, etc. |
+| `data/abuse_ip_db_30d_ips.csv` | [AbuseIPDB blocklist](https://github.com/borestad/blocklist-abuseipdb) | Known abusive IPs (all countries) |
+| `data/icloud_private_relay_ip_ranges.csv` | [Apple mask API](https://mask-api.icloud.com/egress-ip-ranges.csv) | iCloud Private Relay egress (all countries) |
+
+Refresh locally: `npm run update:ip-data`  
+A GitHub Action runs this every Monday and commits changes.
+
+### How datacenter IPs are detected
+
+The library does **not** require you to pass `isDatacenterIp` manually. When `clientIp` is set, it checks whether the IP falls inside any range in `datacenter_ip_ranges.csv` (sourced from ipcat — known cloud/hosting providers like Amazon AWS, Google Cloud, OVH, Hetzner, etc.).
+
+You can still override with an explicit `isDatacenterIp: true/false` if your own ASN data disagrees.
+
+### Where to get other inputs
 
 | Field | Typical source |
 | --- | --- |
-| `ipTimezone` / `ipCountry` / `isDatacenterIp` | GeoIP database (MaxMind, ipinfo, Cloudflare `CF-IPCountry`) |
-| `clientTimezone` | Client beacon (`Intl.DateTimeFormat().resolvedOptions().timeZone`) via `X-Timezone` header or cookie |
-| `tlsFingerprint` | Reverse proxy JA3/JA4 (`ssl_ja3_hash` in nginx, Cloudflare `cf.tls_cipher`, etc.) |
+| `clientIp` | `req.ip`, `X-Forwarded-For`, Cloudflare `CF-Connecting-IP` |
+| `clientTimezone` | Client beacon (`Intl.DateTimeFormat().resolvedOptions().timeZone`) via `X-Timezone` header |
+| `tlsFingerprint` | Reverse proxy JA3/JA4 (`ssl_ja3_hash` in nginx, Cloudflare, Envoy) |
 
 ### Server signals
 
 | Signal | Weight | Confidence | Description |
 | --- | --- | --- | --- |
-| `timezone-mismatch` | 0.45 | high | Client timezone offset differs from GeoIP timezone |
+| `timezone-mismatch` | 0.50 | high | Client timezone offset differs from GeoIP timezone |
 | `known-suspicious-tls` | 0.55 | high | JA3 matches Python, curl, Go, or other scripting clients |
 | `tls-user-agent-mismatch` | 0.50 | high | TLS fingerprint family conflicts with User-Agent |
 | `missing-tls-fingerprint` | 0.25 | medium | Browser UA without TLS fingerprint (when `requireTlsFingerprint: true`) |
 | `accept-language-geo-mismatch` | 0.20 | low | Accept-Language missing GeoIP country code |
-| `datacenter-browser-mismatch` | 0.35 | medium | Hosting/datacenter IP with residential browser UA |
+| `datacenter-browser-mismatch` | 0.35 | medium | Datacenter/hosting IP with residential browser UA |
+| `abuse-listed-ip` | 0.60 | high | IP on AbuseIPDB 30-day blocklist |
+| `icloud-private-relay` | 0.15 | low | IP is an iCloud Private Relay egress address |
 
 ### Server result
 
@@ -197,14 +220,27 @@ interface ServerClientResult {
   confidence: "high" | "medium" | "low";
   signals: ServerSignal[];
   isLegitClient: boolean;
-  context: { ipTimezone?, clientTimezone?, tlsFingerprint?, userAgent?, ipCountry? };
+  context: {
+    clientIp?: string;
+    ipTimezone?: string;
+    ipCountry?: string;
+    isDatacenterIp?: boolean;
+    isAbuseListedIp?: boolean;
+    isIcloudPrivateRelay?: boolean;
+    datacenterProvider?: string;
+    icloudRelayCountry?: string;
+    // ...
+  };
 }
 ```
 
-### Custom TLS blocklist
+### Options
 
 ```ts
-detectServerClient(context, {
+detectServerClientAsync(context, {
+  dataDir: "/path/to/custom/data", // default: package data/
+  lookupGeo: true,                 // doc999tor-fast-geoip lookup
+  checkIpLists: true,              // abuse/datacenter/icloud lists
   suspiciousTlsFingerprints: ["abc123..."],
   timezoneToleranceMinutes: 90,
   scoreThreshold: 0.5,
@@ -230,9 +266,10 @@ import {
 
   // Server (Node/edge)
   detectServerClient,
-  isTimezoneMismatch,
-  isTlsUserAgentMismatch,
-  KNOWN_SUSPICIOUS_TLS_FINGERPRINTS,
+  detectServerClientAsync,
+  enrichServerContext,
+  lookupClientIpGeo,
+  createIpListChecker,
 
   // Helpers
   checkShaderF16Support,

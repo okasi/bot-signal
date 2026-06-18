@@ -30,8 +30,13 @@ export {
 export {
   aggregateServerSuspicionScore,
   buildServerSignals,
+  createIpListChecker,
   detectServerClient,
+  detectServerClientAsync,
+  enrichServerContext,
   findTlsFingerprintEntry,
+  getDefaultIpDataDir,
+  getIpListChecker,
   getTimezoneOffsetMinutes,
   getUserAgentFamily,
   isAcceptLanguageGeoMismatch,
@@ -42,7 +47,9 @@ export {
   isTimezoneMismatch,
   isTlsUserAgentMismatch,
   KNOWN_SUSPICIOUS_TLS_FINGERPRINTS,
+  lookupClientIpGeo,
   normalizeTlsFingerprint,
+  resetIpListCheckerCache,
   resolveServerConfidence,
 } from "./server/index.js";
 export type {
