@@ -1,9 +1,17 @@
 {
   "name": "is-suspicious-client",
   "version": "1.4.0",
-  "description": "Detect headless browsers, automation frameworks, and other suspicious client signals in the browser",
+  "description": "Detect bots, headless browsers, and automation — instant browser checks, behavioral scoring, and server-side IP/TLS/timezone validation with bundled blocklists",
   "license": "MIT",
   "author": "okasi",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/okasi/is-suspicious-client.git"
+  },
+  "homepage": "https://github.com/okasi/is-suspicious-client#readme",
+  "bugs": {
+    "url": "https://github.com/okasi/is-suspicious-client/issues"
+  },
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -35,13 +43,26 @@
   },
   "keywords": [
     "bot-detection",
+    "anti-bot",
     "headless",
+    "headless-chrome",
     "selenium",
     "webdriver",
+    "playwright",
+    "puppeteer",
     "phantomjs",
     "webgpu",
     "fingerprint",
-    "anti-bot"
+    "ja3",
+    "tls-fingerprint",
+    "geoip",
+    "datacenter",
+    "abuseipdb",
+    "automation",
+    "scraping",
+    "browser-automation",
+    "mouse-movement",
+    "behavioral-analysis"
   ],
   "dependencies": {
     "doc999tor-fast-geoip": "^1.1.443",
