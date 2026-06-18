@@ -5,22 +5,34 @@ import detectSuspiciousClient, {
 } from "../src/detectSuspiciousClient.js";
 import type { ExtendedWindow } from "../src/types.js";
 
+function createWebGLContext(renderer = "ANGLE (NVIDIA GeForce RTX 3080)") {
+  return {
+    getExtension: vi.fn().mockReturnValue({
+      UNMASKED_RENDERER_WEBGL: 0x9246,
+    }),
+    getParameter: vi.fn().mockReturnValue(renderer),
+  };
+}
+
 function createMockContext(
   overrides: Partial<ExtendedWindow> = {},
 ): ExtendedWindow {
   const canvas = {
-    getContext: vi.fn().mockReturnValue({}),
+    getContext: vi.fn().mockReturnValue(createWebGLContext()),
   };
 
   const baseDocument = {
     createElement: vi.fn().mockReturnValue(canvas),
   };
 
-  const baseNavigator = {
-    webdriver: false,
-    userAgent:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-  };
+  const baseNavigator = Object.assign(
+    Object.create({ webdriver: false }),
+    {
+      userAgent:
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+      plugins: { length: 3 },
+    },
+  );
 
   const baseScreen = {
     width: 1920,
@@ -34,16 +46,26 @@ function createMockContext(
     ...rest
   } = overrides;
 
+  const navigator = Object.assign(
+    Object.create({ webdriver: false }),
+    baseNavigator,
+    navigatorOverrides,
+  ) as ExtendedWindow["navigator"];
+
   return {
+    chrome: { runtime: {} },
+    outerWidth: 1920,
+    outerHeight: 1080,
+    innerWidth: 1900,
+    innerHeight: 970,
+    screenX: 100,
+    screenY: 50,
     ...rest,
     document: {
       ...baseDocument,
       ...documentOverrides,
     } as ExtendedWindow["document"],
-    navigator: {
-      ...baseNavigator,
-      ...navigatorOverrides,
-    } as ExtendedWindow["navigator"],
+    navigator,
     screen: {
       ...baseScreen,
       ...screenOverrides,
@@ -58,6 +80,11 @@ describe("detectSuspiciousClient", () => {
     expect(result.isLegitClient).toBe(true);
     expect(result.isChromium).toBe(true);
     expect(result.isWebDriver).toBe(false);
+    expect(result.isMissingChromeObject).toBe(false);
+    expect(result.isSoftwareRenderer).toBe(false);
+    expect(result.isSuspiciousWindowDimensions).toBe(false);
+    expect(result.isEmptyPlugins).toBe(false);
+    expect(result.isAutomationArtifacts).toBe(false);
   });
 
   it("flags webdriver clients", () => {
@@ -104,6 +131,97 @@ describe("detectSuspiciousClient", () => {
     );
 
     expect(result.isUserAgentValid).toBe(false);
+    expect(result.isLegitClient).toBe(false);
+  });
+
+  it("flags Chromium without chrome.runtime", () => {
+    const result = detectSuspiciousClient(
+      createMockContext({
+        chrome: undefined,
+      }),
+    );
+
+    expect(result.isMissingChromeObject).toBe(true);
+    expect(result.isLegitClient).toBe(false);
+  });
+
+  it("flags software WebGL renderers", () => {
+    const context = createMockContext();
+    const canvas = context.document.createElement("canvas");
+    vi.mocked(canvas.getContext).mockReturnValue(
+      createWebGLContext("Google SwiftShader") as never,
+    );
+
+    const result = detectSuspiciousClient(context);
+
+    expect(result.isSoftwareRenderer).toBe(true);
+    expect(result.isLegitClient).toBe(false);
+  });
+
+  it("flags suspicious window dimensions", () => {
+    const result = detectSuspiciousClient(
+      createMockContext({
+        outerWidth: 1280,
+        outerHeight: 720,
+        innerWidth: 1280,
+        innerHeight: 720,
+        screenX: 0,
+        screenY: 0,
+      }),
+    );
+
+    expect(result.isSuspiciousWindowDimensions).toBe(true);
+    expect(result.isLegitClient).toBe(false);
+  });
+
+  it("flags empty plugins on Chromium", () => {
+    const result = detectSuspiciousClient(
+      createMockContext({
+        navigator: {
+          plugins: { length: 0 },
+        } as ExtendedWindow["navigator"],
+      }),
+    );
+
+    expect(result.isEmptyPlugins).toBe(true);
+    expect(result.isLegitClient).toBe(false);
+  });
+
+  it("flags Playwright artifacts", () => {
+    const result = detectSuspiciousClient(
+      createMockContext({
+        __playwright: true,
+      }),
+    );
+
+    expect(result.isAutomationArtifacts).toBe(true);
+    expect(result.isLegitClient).toBe(false);
+  });
+
+  it("flags ChromeDriver document artifacts", () => {
+    const result = detectSuspiciousClient(
+      createMockContext({
+        document: {
+          $cdc_asdfasdfasdf: true,
+        } as ExtendedWindow["document"],
+      }),
+    );
+
+    expect(result.isAutomationArtifacts).toBe(true);
+    expect(result.isLegitClient).toBe(false);
+  });
+
+  it("flags own-property webdriver tampering", () => {
+    const result = detectSuspiciousClient(
+      createMockContext({
+        navigator: {
+          webdriver: false,
+          plugins: { length: 3 },
+        } as ExtendedWindow["navigator"],
+      }),
+    );
+
+    expect(result.isSuspiciousWebDriverDescriptor).toBe(true);
     expect(result.isLegitClient).toBe(false);
   });
 });

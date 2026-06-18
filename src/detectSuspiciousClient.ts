@@ -1,3 +1,11 @@
+import {
+  isAutomationArtifacts,
+  isEmptyPlugins,
+  isMissingChromeObject,
+  isSoftwareRenderer,
+  isSuspiciousWebDriverDescriptor,
+  isSuspiciousWindowDimensions,
+} from "./checks.js";
 import type {
   ExtendedWindow,
   SuspiciousClientAsyncResult,
@@ -64,6 +72,12 @@ function detectSync(context: ExtendedWindow): Omit<
     isUserAgentValid,
     isWebGLSupported,
     isModern,
+    isMissingChromeObject: isMissingChromeObject(context),
+    isSoftwareRenderer: isSoftwareRenderer(context),
+    isSuspiciousWindowDimensions: isSuspiciousWindowDimensions(context),
+    isEmptyPlugins: isEmptyPlugins(context),
+    isAutomationArtifacts: isAutomationArtifacts(context),
+    isSuspiciousWebDriverDescriptor: isSuspiciousWebDriverDescriptor(context),
   };
 }
 
@@ -88,6 +102,12 @@ function computeIsLegitClient(
     checks.isUserAgentValid &&
     checks.isWebGLSupported &&
     checks.isModern &&
+    !checks.isMissingChromeObject &&
+    !checks.isSoftwareRenderer &&
+    !checks.isSuspiciousWindowDimensions &&
+    !checks.isEmptyPlugins &&
+    !checks.isAutomationArtifacts &&
+    !checks.isSuspiciousWebDriverDescriptor &&
     shaderF16Passes
   );
 }
@@ -133,4 +153,12 @@ export async function detectSuspiciousClientAsync(
   };
 }
 
-export { checkShaderF16Support, isChromiumBrowser };
+export {
+  isAutomationArtifacts,
+  isEmptyPlugins,
+  isMissingChromeObject,
+  isSoftwareRenderer,
+  isSuspiciousWebDriverDescriptor,
+  isSuspiciousWindowDimensions,
+} from "./checks.js";
+export { checkShaderF16Support, isChromiumBrowser } from "./webgpu.js";

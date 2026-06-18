@@ -49,6 +49,12 @@ console.log(result.isLegitClient);
 | `isUserAgentValid` | User agent starts with `Mozilla/5.0 (` |
 | `isWebGLSupported` | WebGL context can be created |
 | `isModern` | Chrome ≥ 121, Firefox ≥ 128, or Safari ≥ 16.4 |
+| `isMissingChromeObject` | Chromium UA without `window.chrome.runtime` |
+| `isSoftwareRenderer` | WebGL reports SwiftShader, llvmpipe, or similar |
+| `isSuspiciousWindowDimensions` | No browser chrome and window at screen origin |
+| `isEmptyPlugins` | Chromium with zero `navigator.plugins` |
+| `isAutomationArtifacts` | ChromeDriver, Puppeteer, or Playwright markers |
+| `isSuspiciousWebDriverDescriptor` | `navigator.webdriver` patched or own-property tampering |
 | `isChromium` | Chrome/Edge/Chromium user agent |
 | `isShaderF16Supported` | WebGPU `shader-f16` feature (async, Chromium only) |
 | `isLegitClient` | Combined pass/fail across applicable checks |
@@ -60,6 +66,8 @@ import detectSuspiciousClient, {
   detectSuspiciousClientAsync,
   checkShaderF16Support,
   isChromiumBrowser,
+  isSoftwareRenderer,
+  isAutomationArtifacts,
 } from "is-suspicious-client";
 ```
 
@@ -67,6 +75,12 @@ import detectSuspiciousClient, {
 - `detectSuspiciousClientAsync(context)` — sync checks plus WebGPU `shader-f16` on Chromium
 - `checkShaderF16Support(context)` — standalone async WebGPU check
 - `isChromiumBrowser(context)` — whether the user agent is Chromium-based
+- `isSoftwareRenderer(context)` — WebGL software renderer check
+- `isAutomationArtifacts(context)` — ChromeDriver / Playwright artifact scan
+- `isMissingChromeObject(context)` — missing `chrome.runtime` on Chromium
+- `isSuspiciousWindowDimensions(context)` — headless-like window sizing
+- `isEmptyPlugins(context)` — empty plugin list on Chromium
+- `isSuspiciousWebDriverDescriptor(context)` — patched `webdriver` property
 
 ## License
 

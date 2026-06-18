@@ -12,7 +12,10 @@ export interface ExtendedWindow extends Omit<Window, "document" | "navigator"> {
   callPhantom?: unknown;
   _phantom?: unknown;
   __nightmare?: unknown;
-  chrome?: unknown;
+  __playwright?: unknown;
+  __pw_manual?: unknown;
+  _WEBDRIVER_ELEM_CACHE?: unknown;
+  chrome?: { runtime?: unknown };
   domAutomation?: unknown;
   domAutomationController?: unknown;
   document: ExtendedDocument;
@@ -30,6 +33,12 @@ export interface SuspiciousClientResult {
   isUserAgentValid: boolean;
   isWebGLSupported: boolean;
   isModern: boolean;
+  isMissingChromeObject: boolean;
+  isSoftwareRenderer: boolean;
+  isSuspiciousWindowDimensions: boolean;
+  isEmptyPlugins: boolean;
+  isAutomationArtifacts: boolean;
+  isSuspiciousWebDriverDescriptor: boolean;
   isChromium: boolean;
   isLegitClient: boolean;
 }
