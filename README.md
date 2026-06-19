@@ -8,7 +8,7 @@ One library. Three layers of defense. Zero external API keys.
 
 [![npm version](https://img.shields.io/npm/v/detect-bot-client.svg)](https://www.npmjs.com/package/detect-bot-client)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org)
 [![CI](https://github.com/okasi/anti-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/okasi/anti-bot/actions/workflows/ci.yml)
 [![IP data updates](https://github.com/okasi/anti-bot/actions/workflows/update-ip-data.yml/badge.svg)](https://github.com/okasi/anti-bot/actions/workflows/update-ip-data.yml)
 

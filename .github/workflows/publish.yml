@@ -27,10 +27,10 @@ jobs:
             exit 1
           fi
 
-      - name: Setup Node.js 24
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
 
