@@ -1,0 +1,91 @@
+{
+  "name": "anti-bot",
+  "version": "1.4.0",
+  "description": "Detect bots, headless browsers, and automation — instant browser checks, behavioral scoring, and server-side IP/TLS/timezone validation with bundled blocklists",
+  "license": "MIT",
+  "author": "okasi",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/okasi/anti-bot.git"
+  },
+  "homepage": "https://okasi.github.io/anti-bot/",
+  "bugs": {
+    "url": "https://github.com/okasi/anti-bot/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "data"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "build:site": "npm run build && tsx scripts/build-site.ts",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:patchright": "npm run build && vitest run --config vitest.patchright.config.ts",
+    "test:all": "npm run test && npm run test:patchright",
+    "typecheck": "tsc --noEmit",
+    "update:ip-data": "tsx scripts/update-ip-data.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "bot-detection",
+    "anti-bot",
+    "headless",
+    "headless-chrome",
+    "selenium",
+    "webdriver",
+    "playwright",
+    "puppeteer",
+    "phantomjs",
+    "webgpu",
+    "fingerprint",
+    "ja3",
+    "tls-fingerprint",
+    "geoip",
+    "datacenter",
+    "abuseipdb",
+    "automation",
+    "scraping",
+    "browser-automation",
+    "mouse-movement",
+    "behavioral-analysis"
+  ],
+  "dependencies": {
+    "doc999tor-fast-geoip": "^1.1.443",
+    "ipaddr.js": "^2.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.21",
+    "@webgpu/types": "^0.1.60",
+    "patchright": "^1.61.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.22.4",
+    "typescript": "^5.8.3",
+    "undici": "^7.28.0",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

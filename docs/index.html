@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>anti-bot — live demo</title>
+    <meta
+      name="description"
+      content="Interactive browser demo for anti-bot: instant bot detection, WebGPU checks, and behavioral scoring."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header>
+      <div class="hero-pill">Live browser demo</div>
+      <h1>anti-bot</h1>
+      <p>
+        Run instant and behavioral client checks in your current browser. Move your mouse,
+        scroll, and type in the interaction zone to see how behavioral scoring reacts.
+      </p>
+    </header>
+
+    <main class="grid two">
+      <section class="panel">
+        <h2>Instant detection</h2>
+        <p class="hint">Synchronous checks against <code>window</code> and <code>navigator</code>.</p>
+
+        <div id="instant-verdict" class="verdict suspicious">
+          <div>
+            <strong id="instant-label">Analyzing…</strong>
+            <div class="status-line" id="instant-status">Waiting for bundle</div>
+          </div>
+          <span id="instant-badge" class="badge neutral">—</span>
+        </div>
+
+        <div class="actions">
+          <button id="run-instant" class="primary" type="button">Run instant</button>
+          <button id="run-async" type="button">Run async (+ WebGPU)</button>
+        </div>
+
+        <table aria-label="Instant detection flags">
+          <thead>
+            <tr>
+              <th>Flag</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody id="instant-table"></tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <h2>Behavioral detection</h2>
+        <p class="hint">
+          Observes mouse, scroll, typing, and click patterns for ~3 seconds after you start.
+        </p>
+
+        <div id="behavioral-verdict" class="verdict suspicious">
+          <div>
+            <strong id="behavioral-label">Not started</strong>
+            <div class="status-line" id="behavioral-status">Interact below, then start observation</div>
+          </div>
+          <span id="behavioral-badge" class="badge neutral">—</span>
+        </div>
+
+        <div class="score-bar" aria-hidden="true"><span id="score-fill"></span></div>
+        <div class="status-line" id="score-text">Score: —</div>
+
+        <div class="interaction-zone" id="interaction-zone">
+          <p>Move your mouse here, scroll this page, type below, and click the button.</p>
+          <button id="zone-click" type="button">Click me</button>
+          <input id="zone-input" type="text" placeholder="Type naturally or robotically…" />
+        </div>
+
+        <div class="actions">
+          <button id="start-behavioral" class="primary" type="button">Observe 3s</button>
+          <button id="inject-webdriver" type="button">Simulate webdriver</button>
+          <button id="inject-playwright" type="button">Simulate Playwright artifact</button>
+        </div>
+
+        <ul class="signal-list" id="behavioral-signals"></ul>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        Source:
+        <a href="https://github.com/okasi/anti-bot">github.com/okasi/anti-bot</a>
+        · npm:
+        <a href="https://www.npmjs.com/package/anti-bot">anti-bot</a>
+      </p>
+    </footer>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

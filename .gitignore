@@ -1,0 +1,5 @@
+node_modules/
+dist/
+docs/browser.js
+*.log
+.DS_Store
