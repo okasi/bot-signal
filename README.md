@@ -369,7 +369,7 @@ npm install
 npm run test
 npm run build
 npm login          # opens browser; complete 2FA if asked
-npm publish --access public
+npm publish --access public   # no --provenance locally (CI adds it via Actions)
 ```
 
 After this, **Packages** on npmjs.com will show `anti-bot` (not "0 packages").
