@@ -1,16 +1,16 @@
 {
-  "name": "is-suspicious-client",
+  "name": "anti-bot",
   "version": "1.4.0",
   "description": "Detect bots, headless browsers, and automation — instant browser checks, behavioral scoring, and server-side IP/TLS/timezone validation with bundled blocklists",
   "license": "MIT",
   "author": "okasi",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/okasi/is-suspicious-client.git"
+    "url": "git+https://github.com/okasi/anti-bot.git"
   },
-  "homepage": "https://okasi.github.io/is-suspicious-client/",
+  "homepage": "https://okasi.github.io/anti-bot/",
   "bugs": {
-    "url": "https://github.com/okasi/is-suspicious-client/issues"
+    "url": "https://github.com/okasi/anti-bot/issues"
   },
   "type": "module",
   "main": "./dist/index.cjs",

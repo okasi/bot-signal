@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for AI agents and contributors working on **is-suspicious-client**.
+Guidance for AI agents and contributors working on **anti-bot**.
 
 ## Project overview
 

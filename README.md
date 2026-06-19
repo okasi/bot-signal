@@ -1,16 +1,16 @@
 <div align="center">
 
-# is-suspicious-client
+# anti-bot
 
 **Detect bots, headless browsers, and automation — in the browser and on the server.**
 
 One library. Three layers of defense. Zero external API keys.
 
-[![npm version](https://img.shields.io/npm/v/is-suspicious-client.svg)](https://www.npmjs.com/package/is-suspicious-client)
+[![npm version](https://img.shields.io/npm/v/anti-bot.svg)](https://www.npmjs.com/package/anti-bot)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
-[![CI](https://github.com/okasi/is-suspicious-client/actions/workflows/ci.yml/badge.svg)](https://github.com/okasi/is-suspicious-client/actions/workflows/ci.yml)
-[![IP data updates](https://github.com/okasi/is-suspicious-client/actions/workflows/update-ip-data.yml/badge.svg)](https://github.com/okasi/is-suspicious-client/actions/workflows/update-ip-data.yml)
+[![CI](https://github.com/okasi/anti-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/okasi/anti-bot/actions/workflows/ci.yml)
+[![IP data updates](https://github.com/okasi/anti-bot/actions/workflows/update-ip-data.yml/badge.svg)](https://github.com/okasi/anti-bot/actions/workflows/update-ip-data.yml)
 
 [Quick start](#quick-start) · [Detection modes](#detection-modes) · [Signals](#signals) · [API](#api) · [Examples](#examples) · [FAQ](#faq)
 
@@ -20,9 +20,9 @@ One library. Three layers of defense. Zero external API keys.
 
 ## Why this library?
 
-Most bot-detection snippets are copy-pasted checks that rot quickly. **is-suspicious-client** gives you a maintained, typed, testable toolkit that covers the full stack:
+Most bot-detection snippets are copy-pasted checks that rot quickly. **anti-bot** gives you a maintained, typed, testable toolkit that covers the full stack:
 
-**[Live demo](https://okasi.github.io/is-suspicious-client/)** — run instant and behavioral checks in your browser.
+**[Live demo](https://okasi.github.io/anti-bot/)** — run instant and behavioral checks in your browser.
 
 | Layer | Runs where | Catches |
 |-------|------------|---------|
@@ -40,13 +40,13 @@ Most bot-detection snippets are copy-pasted checks that rot quickly. **is-suspic
 ## Quick start
 
 ```bash
-npm install is-suspicious-client
+npm install anti-bot
 ```
 
 ### Browser — block automation on page load
 
 ```ts
-import { detectInstantClient } from "is-suspicious-client";
+import { detectInstantClient } from "anti-bot";
 
 const result = detectInstantClient(window);
 
@@ -58,7 +58,7 @@ if (!result.isLegitClient) {
 ### Server — score a request in one call
 
 ```ts
-import { detectServerClientAsync } from "is-suspicious-client";
+import { detectServerClientAsync } from "anti-bot";
 
 const result = await detectServerClientAsync({
   clientIp: req.ip,
@@ -75,7 +75,7 @@ if (!result.isLegitClient) {
 ### Behavioral — catch scripted interaction
 
 ```ts
-import { createBehavioralClientDetector } from "is-suspicious-client";
+import { createBehavioralClientDetector } from "anti-bot";
 
 const result = await createBehavioralClientDetector({ context: window }).observe(10_000);
 
@@ -232,7 +232,7 @@ import {
   isTimezoneMismatch,
   isTlsUserAgentMismatch,
   KNOWN_SUSPICIOUS_TLS_FINGERPRINTS,
-} from "is-suspicious-client";
+} from "anti-bot";
 ```
 
 `detectSuspiciousClient` / `detectSuspiciousClientAsync` are deprecated aliases.
@@ -287,7 +287,7 @@ if (!server.isLegitClient) return res.status(403).end();
 ### Express middleware
 
 ```ts
-import { detectServerClientAsync } from "is-suspicious-client";
+import { detectServerClientAsync } from "anti-bot";
 
 app.use(async (req, res, next) => {
   const result = await detectServerClientAsync({
@@ -309,7 +309,7 @@ app.use(async (req, res, next) => {
 ```tsx
 "use client";
 import { useEffect } from "react";
-import { detectInstantClient } from "is-suspicious-client";
+import { detectInstantClient } from "anti-bot";
 
 export function BotGuard({ children }) {
   useEffect(() => {
@@ -342,8 +342,8 @@ Yes — ESM + CJS + types. Use with Vite, Webpack, Next.js, or `esm.sh`.
 ## Development
 
 ```bash
-git clone https://github.com/okasi/is-suspicious-client.git
-cd is-suspicious-client
+git clone https://github.com/okasi/anti-bot.git
+cd anti-bot
 npm install
 npx patchright install chromium   # once, for browser tests
 npm test                          # unit tests
@@ -352,7 +352,7 @@ npm run build
 npm run build:site          # copy browser bundle into docs/ for GitHub Pages
 ```
 
-Live demo: https://okasi.github.io/is-suspicious-client/ (deployed from `docs/` on push to `main`).
+Live demo: https://okasi.github.io/anti-bot/ (deployed from `docs/` on push to `main`).
 
 See [AGENTS.md](AGENTS.md) for architecture and contributor guidance.
 
@@ -366,6 +366,6 @@ See [AGENTS.md](AGENTS.md) for architecture and contributor guidance.
 
 **If this saved you time, consider starring the repo.**
 
-[![GitHub stars](https://img.shields.io/github/stars/okasi/is-suspicious-client?style=social)](https://github.com/okasi/is-suspicious-client)
+[![GitHub stars](https://img.shields.io/github/stars/okasi/anti-bot?style=social)](https://github.com/okasi/anti-bot)
 
 </div>

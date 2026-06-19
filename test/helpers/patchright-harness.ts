@@ -82,7 +82,6 @@ export async function injectDetectionBundle(page: Page): Promise<void> {
 export async function navigateToHarness(page: Page, baseUrl: string): Promise<void> {
   await page.goto(`${baseUrl}/harness`, { waitUntil: "networkidle" });
   await injectDetectionBundle(page);
-  await page.waitForFunction(() => window.__harnessReady === true);
 }
 
 export async function openHarnessPage(
