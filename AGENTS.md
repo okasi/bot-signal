@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for AI agents and contributors working on **anti-bot**.
+Guidance for AI agents and contributors working on **detect-bot-client** (npm). GitHub repo: [okasi/anti-bot](https://github.com/okasi/anti-bot).
 
 ## Project overview
 
@@ -142,7 +142,7 @@ Entry: ESM `dist/index.js`, CJS `dist/index.cjs`, types `dist/index.d.ts`
 
 GitHub Actions (`.github/workflows/publish.yml`) publishes via **npm Trusted Publishing** (OIDC).
 
-**First release:** publish as `@okasi/anti-bot` (scoped — unscoped `anti-bot` conflicts with npm package `antibot`). One-time local `npm publish --access public`, then Trusted publishing: `okasi` / `anti-bot` / `publish.yml`.
+**First release:** publish as `detect-bot-client`. One-time local `npm publish --access public`, then Trusted publishing: `okasi` / `anti-bot` / `publish.yml`.
 
 ## Pull request checklist
 

@@ -14,7 +14,7 @@ const CHROME_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36";
 
 function createFixtureDataDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "anti-bot-data-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "detect-bot-client-data-"));
   fs.writeFileSync(
     path.join(dir, "abuse_ip_db_30d_ips.csv"),
     "198.51.100.10\n203.0.113.20\n",

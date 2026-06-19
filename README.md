@@ -1,12 +1,12 @@
 <div align="center">
 
-# anti-bot
+# detect-bot-client
 
 **Detect bots, headless browsers, and automation — in the browser and on the server.**
 
 One library. Three layers of defense. Zero external API keys.
 
-[![npm version](https://img.shields.io/npm/v/@okasi/anti-bot.svg)](https://www.npmjs.com/package/@okasi/anti-bot)
+[![npm version](https://img.shields.io/npm/v/detect-bot-client.svg)](https://www.npmjs.com/package/detect-bot-client)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
 [![CI](https://github.com/okasi/anti-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/okasi/anti-bot/actions/workflows/ci.yml)
@@ -20,7 +20,7 @@ One library. Three layers of defense. Zero external API keys.
 
 ## Why this library?
 
-Most bot-detection snippets are copy-pasted checks that rot quickly. **anti-bot** gives you a maintained, typed, testable toolkit that covers the full stack:
+Most bot-detection snippets are copy-pasted checks that rot quickly. **detect-bot-client** gives you a maintained, typed, testable toolkit that covers the full stack:
 
 **[Live demo](https://okasi.github.io/anti-bot/)** — run instant and behavioral checks in your browser.
 
@@ -40,13 +40,13 @@ Most bot-detection snippets are copy-pasted checks that rot quickly. **anti-bot*
 ## Quick start
 
 ```bash
-npm install @okasi/anti-bot
+npm install detect-bot-client
 ```
 
 ### Browser — block automation on page load
 
 ```ts
-import { detectInstantClient } from "@okasi/anti-bot";
+import { detectInstantClient } from "detect-bot-client";
 
 const result = detectInstantClient(window);
 
@@ -58,7 +58,7 @@ if (!result.isLegitClient) {
 ### Server — score a request in one call
 
 ```ts
-import { detectServerClientAsync } from "@okasi/anti-bot";
+import { detectServerClientAsync } from "detect-bot-client";
 
 const result = await detectServerClientAsync({
   clientIp: req.ip,
@@ -75,7 +75,7 @@ if (!result.isLegitClient) {
 ### Behavioral — catch scripted interaction
 
 ```ts
-import { createBehavioralClientDetector } from "@okasi/anti-bot";
+import { createBehavioralClientDetector } from "detect-bot-client";
 
 const result = await createBehavioralClientDetector({ context: window }).observe(10_000);
 
@@ -232,7 +232,7 @@ import {
   isTimezoneMismatch,
   isTlsUserAgentMismatch,
   KNOWN_SUSPICIOUS_TLS_FINGERPRINTS,
-} from "@okasi/anti-bot";
+} from "detect-bot-client";
 ```
 
 `detectSuspiciousClient` / `detectSuspiciousClientAsync` are deprecated aliases.
@@ -287,7 +287,7 @@ if (!server.isLegitClient) return res.status(403).end();
 ### Express middleware
 
 ```ts
-import { detectServerClientAsync } from "@okasi/anti-bot";
+import { detectServerClientAsync } from "detect-bot-client";
 
 app.use(async (req, res, next) => {
   const result = await detectServerClientAsync({
@@ -309,7 +309,7 @@ app.use(async (req, res, next) => {
 ```tsx
 "use client";
 import { useEffect } from "react";
-import { detectInstantClient } from "@okasi/anti-bot";
+import { detectInstantClient } from "detect-bot-client";
 
 export function BotGuard({ children }) {
   useEffect(() => {
@@ -358,7 +358,7 @@ Live demo: https://okasi.github.io/anti-bot/ (deployed from `docs/` on push to `
 
 ### Publish to npm
 
-npm blocks the unscoped name `anti-bot` (too similar to existing package [`antibot`](https://www.npmjs.com/package/antibot)). This project publishes as **`@okasi/anti-bot`** instead.
+npm package: **`detect-bot-client`** (verified available; distinct from older [`detect-bot`](https://www.npmjs.com/package/detect-bot)).
 
 #### Step 1 — First publish (once, from your computer)
 
@@ -368,18 +368,15 @@ cd anti-bot
 npm install
 npm run test
 npm run build
-npm login          # opens browser; complete 2FA if asked
-npm publish --access public   # no --provenance locally (CI adds it via Actions)
+npm login
+npm publish --access public
 ```
-
-After this, **Packages** on npmjs.com will show `@okasi/anti-bot` (not "0 packages").
 
 #### Step 2 — Enable Trusted Publishing (for GitHub Actions)
 
-1. https://www.npmjs.com/package/@okasi/anti-bot → **Settings** → **Trusted publishing**
+1. https://www.npmjs.com/package/detect-bot-client → **Settings** → **Trusted publishing**
 2. **GitHub Actions** → user `okasi`, repo `anti-bot`, workflow `publish.yml`
 3. Save
-4. Delete the **`NPM_TOKEN`** GitHub secret if you added one (not needed with OIDC)
 
 #### Step 3 — Future releases via Actions
 
