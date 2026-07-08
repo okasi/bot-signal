@@ -7,9 +7,11 @@ export {
   createIpListChecker,
   getDefaultIpDataDir,
   getIpListChecker,
+  parseIp,
+  preloadIpLists,
   resetIpListCheckerCache,
 } from "./ipLists.js";
-export type { IpListChecker, IpListMatchResult } from "./ipLists.js";
+export type { IpListChecker, IpListMatchResult, ParsedIp } from "./ipLists.js";
 export {
   aggregateServerSuspicionScore,
   detectServerClient,
@@ -29,6 +31,7 @@ export {
   isKnownSuspiciousTlsFingerprint,
   isMissingTlsFingerprint,
   isTlsUserAgentMismatch,
+  isValidJa3Hash,
   KNOWN_SUSPICIOUS_TLS_FINGERPRINTS,
   normalizeTlsFingerprint,
 } from "./tls.js";

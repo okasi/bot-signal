@@ -3,174 +3,373 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>detect-bot-client — live demo</title>
+    <title>detect-bot-client — is your browser a bot?</title>
     <meta
       name="description"
-      content="Interactive browser demo for detect-bot-client: instant bot detection, WebGPU checks, and behavioral scoring."
+      content="Live demo of detect-bot-client: instant automation checks, behavioral scoring with a live mouse trail, and an interactive server-signal simulator."
     />
+    <meta property="og:title" content="detect-bot-client — is your browser a bot?" />
+    <meta
+      property="og:description"
+      content="Run instant automation checks and live behavioral scoring against your own browser."
+    />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%9B%B0%EF%B8%8F%3C/text%3E%3C/svg%3E" />
     <link rel="stylesheet" href="./styles.css" />
+    <script>
+      // Apply the stored theme before first paint to avoid a flash.
+      const storedTheme = localStorage.getItem("dbc-theme");
+      if (storedTheme === "light" || storedTheme === "dark") {
+        document.documentElement.dataset.theme = storedTheme;
+      }
+    </script>
   </head>
   <body>
-    <a class="skip-link" href="#main">Skip to demo</a>
+    <a class="skip-link" href="#instant">Skip to results</a>
 
-    <header class="site-header">
-      <div class="site-header__inner">
-        <p class="eyebrow">Live browser demo</p>
-        <h1>detect-bot-client</h1>
-        <p class="lede">
-          See instant and behavioral bot checks run in <strong>your</strong> browser. Results update
-          live — no server round-trip.
-        </p>
-        <div class="header-links">
-          <a href="https://www.npmjs.com/package/detect-bot-client">npm</a>
-          <a href="https://github.com/okasi/detect-bot-client">GitHub</a>
+    <header class="topbar">
+      <div class="shell topbar__inner">
+        <a class="brand" href="#top" aria-label="detect-bot-client home">
+          <svg class="brand__mark" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 2.5 4 5.8v5.4c0 4.9 3.4 8.6 8 10.3 4.6-1.7 8-5.4 8-10.3V5.8L12 2.5Z"
+              fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"
+            />
+            <circle cx="12" cy="11.2" r="3.4" fill="none" stroke="currentColor" stroke-width="1.6" />
+            <path d="M12 11.2 14.6 8.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+          </svg>
+          <span class="brand__name">detect-bot-client</span>
+        </a>
+        <nav class="topbar__nav" aria-label="Sections">
+          <a href="#instant">Instant</a>
+          <a href="#behavioral">Behavioral</a>
+          <a href="#server">Server</a>
+          <a href="#quickstart">Quick start</a>
+        </nav>
+        <div class="topbar__actions">
+          <button id="theme-toggle" class="icon-btn" type="button" aria-label="Toggle color theme">
+            <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.7" />
+              <path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+            </svg>
+            <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
+            </svg>
+          </button>
+          <a class="ghost-btn" href="https://github.com/okasi/detect-bot-client">GitHub</a>
+          <a class="ghost-btn ghost-btn--accent" href="https://www.npmjs.com/package/detect-bot-client">npm</a>
         </div>
       </div>
     </header>
 
-    <main id="main" class="layout">
-      <section class="summary-bar" aria-label="Quick summary">
-        <article class="summary-card" id="summary-instant">
-          <span class="summary-card__label">Instant</span>
-          <span class="summary-card__value" id="summary-instant-value">—</span>
-          <span class="summary-card__meta" id="summary-instant-meta">Run on load</span>
-        </article>
-        <article class="summary-card" id="summary-behavioral">
-          <span class="summary-card__label">Behavioral</span>
-          <span class="summary-card__value" id="summary-behavioral-value">—</span>
-          <span class="summary-card__meta" id="summary-behavioral-meta">Not observed yet</span>
-        </article>
-        <article class="summary-card summary-card--wide">
-          <span class="summary-card__label">Install</span>
-          <div class="install-row">
-            <code class="install-snippet">npm install detect-bot-client</code>
-            <button id="copy-install" class="btn btn--small" type="button">Copy</button>
-          </div>
-        </article>
-      </section>
-
-      <section class="panel" aria-labelledby="instant-heading">
-        <div class="panel__head">
-          <div>
-            <h2 id="instant-heading">Instant detection</h2>
-            <p class="panel__desc">
-              Synchronous checks on <code>window</code> and <code>navigator</code>. Any failed
-              flag fails <code>isLegitClient</code>.
+    <main id="top">
+      <!-- ============================== HERO ============================== -->
+      <section class="hero">
+        <div class="shell hero__inner">
+          <div class="hero__copy">
+            <p class="eyebrow">Live demo — everything runs in your browser</p>
+            <h1 class="hero__title">Is your browser<br /><span id="hero-highlight" class="hero__highlight">being scanned…</span></h1>
+            <p class="hero__lede">
+              <strong>detect-bot-client</strong> spots headless browsers, automation frameworks, and
+              scripted interaction — in the browser and on the server. This page runs the real
+              library against <em>you</em>.
+            </p>
+            <div class="install" role="group" aria-label="Install command">
+              <code class="install__cmd" id="install-cmd">npm install detect-bot-client</code>
+              <button class="install__copy" id="copy-install" type="button" aria-label="Copy install command">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M5 15V6a2 2 0 0 1 2-2h9" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                <span class="visually-hidden">Copy</span>
+              </button>
+            </div>
+            <p class="hero__meta">
+              TypeScript · ESM + CJS · browser/server entry points · one dependency · MIT
             </p>
           </div>
-          <div class="actions">
-            <button id="run-instant" class="btn btn--primary" type="button">Re-run instant</button>
-            <button id="run-async" class="btn" type="button">Run async (+ WebGPU)</button>
+
+          <div class="hero__panel">
+            <div id="hero-verdict" class="scan-card" role="status" aria-live="polite">
+              <div class="scan-card__radar" aria-hidden="true">
+                <div class="radar">
+                  <div class="radar__sweep"></div>
+                  <div class="radar__ring radar__ring--1"></div>
+                  <div class="radar__ring radar__ring--2"></div>
+                  <div class="radar__dot"></div>
+                </div>
+              </div>
+              <div class="scan-card__body">
+                <span class="scan-card__label">Verdict</span>
+                <strong class="scan-card__verdict" id="hero-verdict-text">Scanning…</strong>
+                <span class="scan-card__detail" id="hero-verdict-detail">Running instant checks</span>
+              </div>
+              <dl class="scan-card__stats">
+                <div><dt>Instant checks</dt><dd id="hero-stat-instant">–</dd></div>
+                <div><dt>Flagged</dt><dd id="hero-stat-flagged">–</dd></div>
+                <div><dt>Behavioral score</dt><dd id="hero-stat-score">not run</dd></div>
+              </dl>
+            </div>
           </div>
-        </div>
-
-        <div id="instant-verdict" class="verdict verdict--pending" role="status">
-          <div class="verdict__icon" aria-hidden="true">◌</div>
-          <div class="verdict__body">
-            <strong id="instant-label">Analyzing…</strong>
-            <p id="instant-status" class="verdict__meta">Loading detection bundle</p>
-          </div>
-          <span id="instant-badge" class="pill pill--neutral">Pending</span>
-        </div>
-
-        <div class="toolbar" role="group" aria-label="Filter flags">
-          <span class="toolbar__label">Show</span>
-          <button type="button" class="chip chip--active" data-filter="all">All</button>
-          <button type="button" class="chip" data-filter="fail">Fail</button>
-          <button type="button" class="chip" data-filter="legit">Legit</button>
-          <span class="toolbar__count" id="instant-count">0 flags</span>
-        </div>
-
-        <div class="table-wrap">
-          <table class="flags-table" aria-label="Instant detection flags">
-            <thead>
-              <tr>
-                <th scope="col">Flag</th>
-                <th scope="col">What it checks</th>
-                <th scope="col">Status</th>
-              </tr>
-            </thead>
-            <tbody id="instant-table"></tbody>
-          </table>
         </div>
       </section>
 
-      <section class="panel" aria-labelledby="behavioral-heading">
-        <div class="panel__head">
-          <div>
-            <h2 id="behavioral-heading">Behavioral detection</h2>
-            <p class="panel__desc">
-              Watches mouse, scroll, typing, and clicks for ~3 seconds. Robotic patterns raise the
-              suspicion score above the 0.55 threshold.
-            </p>
+      <!-- ============================ INSTANT ============================ -->
+      <section class="section" id="instant" aria-labelledby="instant-title">
+        <div class="shell">
+          <header class="section__head">
+            <div>
+              <p class="section__kicker">Layer 1 · synchronous</p>
+              <h2 id="instant-title">Instant detection</h2>
+              <p class="section__desc">
+                <code>detectInstantClient(window)</code> inspects the environment in a single pass —
+                WebDriver flags, automation artifacts, rendering, and window geometry. Signals roll up
+                into a weighted <code>suspicionScore</code>.
+              </p>
+            </div>
+            <div class="section__actions">
+              <button id="run-instant" class="btn btn--primary" type="button">Re-run checks</button>
+              <button id="run-async" class="btn" type="button">
+                Run async <span class="btn__hint">+ WebGPU</span>
+              </button>
+            </div>
+          </header>
+
+          <div id="instant-banner" class="banner banner--pending" role="status" aria-live="polite">
+            <span class="banner__icon" aria-hidden="true"></span>
+            <div class="banner__text">
+              <strong id="instant-banner-title">Analyzing your browser…</strong>
+              <span id="instant-banner-detail">Loading the detection bundle</span>
+            </div>
+            <span id="instant-banner-pill" class="pill pill--pending">pending</span>
+          </div>
+
+          <div class="toolbar">
+            <div class="chips" role="group" aria-label="Filter checks">
+              <button class="chip chip--on" data-filter="all" type="button">All</button>
+              <button class="chip" data-filter="flagged" type="button">Flagged</button>
+              <button class="chip" data-filter="passed" type="button">Passed</button>
+            </div>
+            <span class="toolbar__count" id="instant-count"></span>
+          </div>
+
+          <div class="check-grid" id="check-grid"></div>
+
+          <div class="sim-strip">
+            <span class="sim-strip__label">Pretend to be a bot:</span>
+            <button id="sim-webdriver" class="btn btn--danger-ghost" type="button">
+              Inject <code>navigator.webdriver</code>
+            </button>
+            <button id="sim-playwright" class="btn btn--danger-ghost" type="button">
+              Inject <code>window.__playwright</code>
+            </button>
+            <button id="sim-reset" class="btn" type="button" hidden>Reset page</button>
           </div>
         </div>
+      </section>
 
-        <div id="behavioral-verdict" class="verdict verdict--pending" role="status">
-          <div class="verdict__icon" aria-hidden="true">◌</div>
-          <div class="verdict__body">
-            <strong id="behavioral-label">Not started</strong>
-            <p id="behavioral-status" class="verdict__meta">
-              Interact in the zone below, then start observation
-            </p>
+      <!-- ========================== BEHAVIORAL =========================== -->
+      <section class="section section--alt" id="behavioral" aria-labelledby="behavioral-title">
+        <div class="shell">
+          <header class="section__head">
+            <div>
+              <p class="section__kicker">Layer 2 · over time</p>
+              <h2 id="behavioral-title">Behavioral detection</h2>
+              <p class="section__desc">
+                <code>createBehavioralClientDetector()</code> watches how the pointer, wheel, and
+                keyboard behave. Humans are noisy; scripts are not. Touch taps, keyboard clicks,
+                and key auto-repeat are recognized — they never count against you.
+              </p>
+            </div>
+            <div class="section__actions">
+              <button id="observe-btn" class="btn btn--primary" type="button">Observe for 5s</button>
+              <button id="replay-bot" class="btn btn--danger-ghost" type="button">Replay a bot script</button>
+            </div>
+          </header>
+
+          <div class="behavioral-grid">
+            <div class="trail-card">
+              <div class="trail-card__head">
+                <h3>What the detector sees</h3>
+                <span class="trail-card__hint">move, scroll, click, type — anywhere on the page</span>
+              </div>
+              <canvas id="trail-canvas" class="trail-canvas" aria-label="Live visualization of your recent mouse movement" role="img"></canvas>
+              <div class="trail-card__counters" aria-live="off">
+                <div class="counter"><span class="counter__value" id="count-moves">0</span><span class="counter__label">mouse moves</span></div>
+                <div class="counter"><span class="counter__value" id="count-scrolls">0</span><span class="counter__label">scrolls</span></div>
+                <div class="counter"><span class="counter__value" id="count-keys">0</span><span class="counter__label">keys</span></div>
+                <div class="counter"><span class="counter__value" id="count-clicks">0</span><span class="counter__label">clicks</span></div>
+                <div class="counter"><span class="counter__value" id="count-synthetic">0</span><span class="counter__label">synthetic</span></div>
+              </div>
+              <label class="type-field">
+                <span>Typing sample</span>
+                <input id="type-input" type="text" autocomplete="off" placeholder="Type a few words naturally…" />
+              </label>
+            </div>
+
+            <div class="score-card">
+              <div id="behavioral-banner" class="banner banner--pending banner--tight" role="status" aria-live="polite">
+                <span class="banner__icon" aria-hidden="true"></span>
+                <div class="banner__text">
+                  <strong id="behavioral-banner-title">Idle</strong>
+                  <span id="behavioral-banner-detail">Interact with the page, then start an observation</span>
+                </div>
+                <span id="behavioral-banner-pill" class="pill pill--pending">pending</span>
+              </div>
+
+              <div class="meter" aria-hidden="false">
+                <div class="meter__head">
+                  <span class="meter__title">Suspicion score</span>
+                  <output class="meter__value" id="score-value" for="observe-btn">0.000</output>
+                </div>
+                <div class="meter__track">
+                  <div class="meter__fill" id="score-fill"></div>
+                  <div class="meter__threshold" style="--at: 55%">
+                    <span class="meter__threshold-label">0.55 threshold</span>
+                  </div>
+                </div>
+                <div class="meter__scale"><span>0 · human</span><span>1 · automated</span></div>
+              </div>
+
+              <ul class="signal-list" id="signal-list" aria-label="Behavioral signals"></ul>
+            </div>
           </div>
-          <span id="behavioral-badge" class="pill pill--neutral">Pending</span>
         </div>
+      </section>
 
-        <div class="score-block">
-          <div class="score-block__header">
-            <span>Suspicion score</span>
-            <span id="score-text" class="score-block__value">—</span>
+      <!-- ============================ SERVER ============================= -->
+      <section class="section" id="server" aria-labelledby="server-title">
+        <div class="shell">
+          <header class="section__head">
+            <div>
+              <p class="section__kicker">Layer 3 · Node</p>
+              <h2 id="server-title">Server-side scoring</h2>
+              <p class="section__desc">
+                <code>detectServerClientAsync()</code> runs in Node — GeoIP, datacenter ranges,
+                AbuseIPDB, iCloud Private Relay, and TLS fingerprints, all offline. This simulator
+                uses the library's real weights and formula:
+                <code>score&nbsp;=&nbsp;1&nbsp;−&nbsp;Π(1&nbsp;−&nbsp;wᵢ)</code>.
+              </p>
+            </div>
+            <div class="section__actions">
+              <label class="preset-label" for="preset-select">Scenario</label>
+              <select id="preset-select" class="select">
+                <option value="clean">Residential Chrome</option>
+                <option value="curl-aws">curl from an AWS box</option>
+                <option value="stealth-vpn">Stealth browser on a VPN</option>
+                <option value="relay">Safari via iCloud Relay</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+          </header>
+
+          <div class="server-grid">
+            <ul class="signal-toggles" id="server-toggles" aria-label="Server signals"></ul>
+
+            <div class="server-result">
+              <div id="server-banner" class="banner banner--ok banner--tight" role="status" aria-live="polite">
+                <span class="banner__icon" aria-hidden="true"></span>
+                <div class="banner__text">
+                  <strong id="server-banner-title">Legit client</strong>
+                  <span id="server-banner-detail">No signals triggered</span>
+                </div>
+                <span id="server-banner-pill" class="pill pill--ok">legit</span>
+              </div>
+
+              <div class="meter">
+                <div class="meter__head">
+                  <span class="meter__title">Suspicion score</span>
+                  <output class="meter__value" id="server-score-value">0.000</output>
+                </div>
+                <div class="meter__track">
+                  <div class="meter__fill" id="server-score-fill"></div>
+                  <div class="meter__threshold" style="--at: 50%">
+                    <span class="meter__threshold-label">0.50 threshold</span>
+                  </div>
+                </div>
+                <div class="meter__scale"><span>0 · human</span><span>1 · automated</span></div>
+              </div>
+
+              <div class="server-code">
+                <div class="server-code__head">
+                  <span>Equivalent request context</span>
+                  <button class="copy-mini" data-copy-target="server-json" type="button">Copy</button>
+                </div>
+                <pre><code id="server-json"></code></pre>
+              </div>
+            </div>
           </div>
-          <div class="score-track" aria-hidden="true">
-            <span class="score-threshold" title="Threshold 0.55"></span>
-            <span id="score-fill" class="score-fill"></span>
+        </div>
+      </section>
+
+      <!-- ========================== QUICK START ========================== -->
+      <section class="section section--alt" id="quickstart" aria-labelledby="quickstart-title">
+        <div class="shell">
+          <header class="section__head">
+            <div>
+              <p class="section__kicker">Ship it</p>
+              <h2 id="quickstart-title">Quick start</h2>
+              <p class="section__desc">
+                One package, three layers. Import from the root, or use the
+                <code>/browser</code> and <code>/server</code> entry points.
+              </p>
+            </div>
+          </header>
+
+          <div class="snippet-grid">
+            <article class="snippet">
+              <div class="snippet__head">
+                <h3>Browser — block on load</h3>
+                <button class="copy-mini" data-copy-target="snippet-browser" type="button">Copy</button>
+              </div>
+              <pre><code id="snippet-browser"><span class="tok-kw">import</span> { detectInstantClient } <span class="tok-kw">from</span> <span class="tok-str">"detect-bot-client"</span>;
+
+<span class="tok-kw">const</span> result = <span class="tok-fn">detectInstantClient</span>(window);
+
+<span class="tok-kw">if</span> (!result.isLegitClient) {
+  location.href = <span class="tok-str">"/blocked"</span>;
+}</code></pre>
+            </article>
+
+            <article class="snippet">
+              <div class="snippet__head">
+                <h3>Behavioral — observe &amp; score</h3>
+                <button class="copy-mini" data-copy-target="snippet-behavioral" type="button">Copy</button>
+              </div>
+              <pre><code id="snippet-behavioral"><span class="tok-kw">import</span> { createBehavioralClientDetector } <span class="tok-kw">from</span> <span class="tok-str">"detect-bot-client"</span>;
+
+<span class="tok-kw">const</span> result = <span class="tok-kw">await</span> <span class="tok-fn">createBehavioralClientDetector</span>({ context: window })
+  .<span class="tok-fn">observe</span>(<span class="tok-num">10_000</span>);
+
+<span class="tok-kw">if</span> (!result.isLegitClient) <span class="tok-fn">challenge</span>();</code></pre>
+            </article>
+
+            <article class="snippet">
+              <div class="snippet__head">
+                <h3>Server — score a request</h3>
+                <button class="copy-mini" data-copy-target="snippet-server" type="button">Copy</button>
+              </div>
+              <pre><code id="snippet-server"><span class="tok-kw">import</span> { detectServerClientAsync } <span class="tok-kw">from</span> <span class="tok-str">"detect-bot-client/server"</span>;
+
+<span class="tok-kw">const</span> result = <span class="tok-kw">await</span> <span class="tok-fn">detectServerClientAsync</span>({
+  clientIp: req.ip,
+  clientTimezone: req.headers[<span class="tok-str">"x-timezone"</span>],
+  userAgent: req.headers[<span class="tok-str">"user-agent"</span>],
+  tlsFingerprint: req.headers[<span class="tok-str">"x-ja3-hash"</span>],
+});
+
+<span class="tok-kw">if</span> (!result.isLegitClient) res.<span class="tok-fn">status</span>(<span class="tok-num">403</span>).<span class="tok-fn">end</span>();</code></pre>
+            </article>
           </div>
-          <p class="score-legend">
-            <span>0 = human-like</span>
-            <span>0.55 = threshold</span>
-            <span>1 = highly automated</span>
-          </p>
         </div>
-
-        <div class="interaction-zone" id="interaction-zone">
-          <h3 class="interaction-zone__title">Try it yourself</h3>
-          <ol class="interaction-zone__steps">
-            <li>Move your mouse around this box</li>
-            <li>Scroll the page a little</li>
-            <li>Type in the field below</li>
-            <li>Click the button</li>
-          </ol>
-          <button id="zone-click" class="btn" type="button">Click me</button>
-          <label class="field">
-            <span class="field__label">Typing sample</span>
-            <input id="zone-input" type="text" placeholder="Type naturally or robotically…" />
-          </label>
-        </div>
-
-        <div class="actions">
-          <button id="start-behavioral" class="btn btn--primary" type="button">
-            Observe for 3 seconds
-          </button>
-          <button id="inject-webdriver" class="btn btn--warn" type="button">
-            Simulate webdriver
-          </button>
-          <button id="inject-playwright" class="btn btn--warn" type="button">
-            Simulate Playwright
-          </button>
-        </div>
-
-        <h3 class="subsection-title">Behavioral signals</h3>
-        <ul class="signal-grid" id="behavioral-signals" aria-label="Behavioral signals"></ul>
       </section>
     </main>
 
-    <footer class="site-footer">
-      <p>
-        <a href="https://github.com/okasi/detect-bot-client">Source</a>
-        ·
-        <a href="https://www.npmjs.com/package/detect-bot-client">npm package</a>
-      </p>
+    <footer class="footer">
+      <div class="shell footer__inner">
+        <p>
+          <a href="https://github.com/okasi/detect-bot-client">GitHub</a> ·
+          <a href="https://www.npmjs.com/package/detect-bot-client">npm</a> ·
+          <a href="https://github.com/okasi/detect-bot-client/blob/main/LICENSE">MIT</a>
+        </p>
+        <p class="footer__ua" id="footer-ua"></p>
+      </div>
     </footer>
 
     <script type="module" src="./app.js"></script>

@@ -7,6 +7,11 @@ export interface IpGeoResult {
   region?: string;
 }
 
+/**
+ * Looks up country, timezone, city, and region for an IP using the bundled
+ * offline GeoIP database (`doc999tor-fast-geoip`). Returns `null` when the IP
+ * is unknown or invalid — never throws.
+ */
 export async function lookupClientIpGeo(ip: string): Promise<IpGeoResult | null> {
   try {
     const geo = await lookup(ip);

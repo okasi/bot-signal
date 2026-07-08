@@ -7,6 +7,11 @@ import type {
   ConfidenceLevel,
 } from "./types.js";
 
+/**
+ * Combines triggered signal weights into one score:
+ * `1 - Π(1 - weightᵢ)` — independent-probability union, so extra signals
+ * always raise the score but never past 1.
+ */
 export function aggregateSuspicionScore(signals: BehavioralSignal[]): number {
   const triggered = signals.filter((signal) => signal.triggered);
 
@@ -23,6 +28,7 @@ export function aggregateSuspicionScore(signals: BehavioralSignal[]): number {
   return 1 - score;
 }
 
+/** Confidence in the verdict based on sample volume and high-confidence signal hits. */
 export function resolveConfidence(
   signals: BehavioralSignal[],
   sampleCounts: BehavioralSampleCounts,
@@ -32,7 +38,8 @@ export function resolveConfidence(
     sampleCounts.mouseMoves +
     sampleCounts.scrolls +
     sampleCounts.keyPresses +
-    sampleCounts.clicks;
+    sampleCounts.clicks +
+    sampleCounts.touches;
   const triggeredHigh = signals.filter(
     (signal) => signal.triggered && signal.confidence === "high",
   ).length;
@@ -58,9 +65,14 @@ export function countSyntheticEvents(samples: BehavioralSamples): number {
     ...samples.scrolls,
     ...samples.keyPresses,
     ...samples.clicks,
+    ...(samples.touches ?? []),
   ].filter((event) => !event.isTrusted).length;
 }
 
+/**
+ * Scores a set of recorded interaction samples without running a detector —
+ * useful for analyzing samples collected elsewhere (e.g. beaconed to a server).
+ */
 export function analyzeBehavioralSamples(
   samples: BehavioralSamples,
   scoreThreshold = 0.55,
@@ -72,6 +84,7 @@ export function analyzeBehavioralSamples(
     scrolls: samples.scrolls.length,
     keyPresses: samples.keyPresses.length,
     clicks: samples.clicks.length,
+    touches: samples.touches?.length ?? 0,
     syntheticEvents: countSyntheticEvents(samples),
   };
   const confidence = resolveConfidence(signals, sampleCounts, suspicionScore);

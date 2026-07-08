@@ -10,25 +10,32 @@ TypeScript npm library with three detection layers:
 |-------|-------------|----------|
 | Instant (browser) | `detectInstantClient` | `src/detectInstantClient.ts`, `src/checks.ts`, `src/webgpu.ts` |
 | Behavioral (browser) | `createBehavioralClientDetector` | `src/behavioral/` |
-| Server (Node/edge) | `detectServerClientAsync` | `src/server/` |
+| Server (Node) | `detectServerClientAsync` | `src/server/` |
 
-Public API is re-exported from `src/index.ts`. Build output: `dist/` (tsup, ESM + CJS).
+Entry points: `src/index.ts` (full API), `src/browser.ts` (browser-only),
+`src/server.ts` (server-only). The package.json `exports` map routes the root
+import to the browser build under the `browser` condition so browser bundlers
+never see `node:fs`. Build output: `dist/` (tsup — ESM + CJS + IIFE
+`browser.global.js` for CDNs).
 
 ## Repository layout
 
 ```
 src/
-  detectInstantClient.ts        # instant detection entry
+  index.ts                    # root entry (full API)
+  browser.ts                  # browser entry (instant + behavioral)
+  server.ts                   # server entry (server detection only)
+  detectInstantClient.ts      # instant detection entry
   checks.ts                   # high-value browser checks
   webgpu.ts                   # shader-f16 + isChromiumBrowser
   behavioral/
-    analysis.ts               # mouse/scroll/typing heuristics
+    analysis.ts               # mouse/scroll/typing/touch heuristics
     scoring.ts                # weighted score aggregation
-    detector.ts               # DOM event listener lifecycle
+    index.ts                  # detector (DOM event listener lifecycle)
     types.ts
   server/
     geoip.ts                  # doc999tor-fast-geoip wrapper
-    ipLists.ts                # abuse/datacenter/icloud CIDR matching
+    ipLists.ts                # parseIp + interval matching (IPv4/IPv6, binary search)
     enrich.ts                 # auto-fill context from clientIp
     analysis.ts               # buildServerSignals
     scoring.ts                # detectServerClient(Async)
@@ -56,14 +63,17 @@ test/                         # vitest unit + patchright browser tests
 npm install
 npm run typecheck
 npm test                    # unit tests (vitest, mocked window)
+npm run test:coverage       # unit tests + 100% coverage gate
 npm run test:patchright     # browser tests (patchright + real Chromium)
 npm run test:all            # unit + patchright
 npm run build
-npm run build:site            # GitHub Pages demo in docs/
-npm run update:ip-data   # refresh data/*.csv from upstream sources
+npm run lint:package        # publint + Are The Types Wrong
+npm run check               # typecheck + coverage + patchright + build + package lint
+npm run build:site        # GitHub Pages demo in docs/
+npm run update:ip-data    # refresh data/*.csv from upstream sources
 ```
 
-Always run `npm run typecheck && npm run test:all && npm run build` before committing.
+Always run `npm run check` before committing.
 
 Patchright browser tests require `npx patchright install chromium` once after install.
 The browser bundle (`dist/browser.js`, entry `src/browser.ts`) is injected into Patchright's
@@ -84,9 +94,12 @@ to `page.evaluate`.
 
 1. Add check in `src/checks.ts` or `detectInstantClient.ts`
 2. Add boolean field to `InstantClientResult` in `src/types.ts`
-3. Include in `computeIsLegitClient`
+3. Add a spec (weight + confidence) to `INSTANT_SIGNAL_SPECS` in
+   `detectInstantClient.ts` — use `triggerWhenFalse` for positive-health flags.
+   Definitive markers weigh 1.0; false-positive-prone checks weigh 0.25–0.35 so
+   they only block in combination (score `≥ scoreThreshold`, default 0.5).
 4. Add test in `test/detectInstantClient.test.ts`
-5. Document flag in `README.md` signals table
+5. Document flag + weight in `README.md` signals table
 
 ### Behavioral
 
@@ -115,30 +128,47 @@ Prefer low false-positive signals. Use weighted scoring for ambiguous checks.
 | `icloud_private_relay_ip_ranges.csv` | `mask-api.icloud.com` (all countries, `cidr,country`) |
 | `datacenter_ip_ranges.csv` | `client9/ipcat` datacenters.csv |
 
-Weekly refresh: `.github/workflows/update-ip-data.yml`  
-Datacenter detection: IP matched against ipcat ranges in `src/server/ipLists.ts`  
+Weekly refresh: `.github/workflows/update-ip-data.yml`
+Matching: `src/server/ipLists.ts` parses lists once into sorted numeric
+intervals (IPv4 as numbers, IPv6 as bigints) and binary-searches per lookup.
+IPv4-mapped IPv6 input normalizes to IPv4. Abuse entries may carry trailing
+`# country AS provider` annotations — only the first token is the IP.
 GeoIP: `doc999tor-fast-geoip` via `lookupClientIpGeo` when `clientIp` is set
+(IPv4-only, like the ipcat datacenter list). Call `preloadIpLists()` at boot to
+pay the one-off parse cost up front. `scripts/update-ip-data.ts` validates row
+shapes with `parseIp`, rejects HTML error pages, and refuses to overwrite a list
+whose row count collapses (`--force` to override).
 
 ## Scoring formula
 
-Behavioral and server modes:
+All three modes:
 
 ```
 suspicionScore = 1 - Π(1 - weightᵢ)   for each triggered signal
 isLegitClient = suspicionScore < scoreThreshold
 ```
 
+Instant now uses this too (previously a hard boolean AND) — see
+`INSTANT_SIGNAL_SPECS`. Default thresholds: instant 0.5, behavioral 0.55,
+server 0.5.
+
 ## Testing notes
 
+- **Coverage gate is 100%** (statements/branches/functions/lines) on `src/**`
+  except `types.ts`; patchright tests are excluded from coverage, so every
+  branch needs a unit test. Run `npm run test:coverage`.
 - Server tests use `createFixtureDataDir()` with temp CSVs and `resetIpListCheckerCache()`
 - Browser instant unit tests mock `window` / `navigator` with prototype-based `webdriver`
-- Patchright tests (`test/patchright/`) run detection in real Chromium via `test/helpers/patchright-harness.ts`
+- Patchright tests (`test/patchright/`) run detection in real Chromium via `test/helpers/patchright-harness.ts`; `runInstantDetection(page, { scoreThreshold })` passes options through
 - GeoIP tests call real `lookup("8.8.8.8")` — requires `doc999tor-fast-geoip` data in node_modules
 
 ## Package publishing
 
 `package.json` `files`: `["dist", "data"]`  
-Entry: ESM `dist/index.js`, CJS `dist/index.cjs`, types `dist/index.d.ts`
+Exports: `.` (browser condition → `dist/browser.*`), `./browser`, `./server`,
+each with ESM + CJS + split `.d.ts`/`.d.cts`. CDN: `unpkg`/`jsdelivr` point at
+`dist/browser.global.js` (IIFE, global `DetectBotClient`). Keep `publint` and
+`@arethetypeswrong/cli` green when touching the exports map.
 
 GitHub Actions (`.github/workflows/publish.yml`) publishes via **npm Trusted Publishing** (OIDC).
 
@@ -146,7 +176,7 @@ GitHub Actions (`.github/workflows/publish.yml`) publishes via **npm Trusted Pub
 
 ## Pull request checklist
 
-- [ ] `npm run typecheck && npm run test:all && npm run build` pass
+- [ ] `npm run check` passes
 - [ ] `README.md` updated for user-facing changes
 - [ ] `AGENTS.md` updated if architecture or layout changed
 - [ ] No new documentation files beyond README.md and AGENTS.md

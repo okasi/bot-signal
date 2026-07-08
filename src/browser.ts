@@ -13,8 +13,9 @@ export {
   resolveConfidence,
 } from "./behavioral/index.js";
 export {
+  aggregateInstantSuspicionScore,
+  buildInstantSignals,
   checkShaderF16Support,
-  default,
   detectInstantClient,
   detectInstantClientAsync,
   isAutomationArtifacts,
@@ -24,6 +25,7 @@ export {
   isSoftwareRenderer,
   isSuspiciousWebDriverDescriptor,
   isSuspiciousWindowDimensions,
+  resolveInstantConfidence,
 } from "./detectInstantClient.js";
 export type {
   BehavioralClientDetector,
@@ -32,7 +34,12 @@ export type {
   BehavioralSampleCounts,
   BehavioralSamples,
   BehavioralSignal,
+  ClickSample,
   ConfidenceLevel,
+  KeySample,
+  MouseSample,
+  ScrollSample,
+  TouchSample,
 } from "./behavioral/types.js";
 export type {
   ExtendedDocument,
@@ -40,4 +47,7 @@ export type {
   ExtendedWindow,
   InstantClientAsyncResult,
   InstantClientResult,
+  InstantConfidenceLevel,
+  InstantDetectorOptions,
+  InstantSignal,
 } from "./types.js";

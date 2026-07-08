@@ -16,6 +16,7 @@ export interface BehavioralSampleCounts {
   scrolls: number;
   keyPresses: number;
   clicks: number;
+  touches: number;
   syntheticEvents: number;
 }
 
@@ -35,11 +36,20 @@ export interface ScrollSample {
 export interface KeySample {
   t: number;
   isTrusted: boolean;
+  /** `true` for auto-repeat while a key is held — excluded from typing-rhythm analysis */
+  repeat?: boolean;
 }
 
 export interface ClickSample {
   x: number;
   y: number;
+  t: number;
+  isTrusted: boolean;
+  /** `MouseEvent.detail` — `0` for keyboard-activated clicks (Enter/Space on a control) */
+  detail?: number;
+}
+
+export interface TouchSample {
   t: number;
   isTrusted: boolean;
 }
@@ -49,6 +59,8 @@ export interface BehavioralSamples {
   scrolls: ScrollSample[];
   keyPresses: KeySample[];
   clicks: ClickSample[];
+  /** Touch activity — exempts tap-driven clicks from mouse-based signals */
+  touches?: TouchSample[];
   observationMs: number;
 }
 
@@ -66,6 +78,13 @@ export interface BehavioralDetectorOptions {
   minObservationMs?: number;
   scoreThreshold?: number;
   pollIntervalMs?: number;
+  /**
+   * Retain only samples from the last N milliseconds so a long-lived
+   * `start()` (without `stop()`) cannot grow memory without bound and each
+   * poll scores recent behavior. Defaults to 60000; set `Infinity` to keep
+   * everything. Short one-shot `observe()` calls are unaffected.
+   */
+  sampleWindowMs?: number;
   onUpdate?: (result: BehavioralClientResult) => void;
 }
 

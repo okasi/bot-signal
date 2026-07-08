@@ -7,6 +7,11 @@ export interface EnrichedServerContext extends ServerClientContext {
   icloudRelayCountry?: string;
 }
 
+/**
+ * Fills missing context fields from `clientIp`: GeoIP country/timezone
+ * (unless `lookupGeo: false`) and bundled blocklist matches (unless
+ * `checkIpLists: false`). Fields already present are never overwritten.
+ */
 export async function enrichServerContext(
   context: ServerClientContext,
   options: ServerDetectorOptions = {},

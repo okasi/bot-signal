@@ -36,7 +36,20 @@ export const INSTANT_RESULT_KEYS = [
   "isLegitClient",
 ] as const;
 
-export type InstantBrowserResult = Record<(typeof INSTANT_RESULT_KEYS)[number], boolean>;
+export interface InstantSignalSummary {
+  id: string;
+  triggered: boolean;
+  weight: number;
+}
+
+export type InstantBrowserResult = Record<
+  (typeof INSTANT_RESULT_KEYS)[number],
+  boolean
+> & {
+  suspicionScore: number;
+  confidence: "high" | "medium" | "low";
+  signals: InstantSignalSummary[];
+};
 
 export interface PatchrightSession {
   browser: Browser;
@@ -100,11 +113,14 @@ export async function openHarnessPage(
   return { browser, context, page };
 }
 
-export async function runInstantDetection(page: Page): Promise<InstantBrowserResult> {
-  return page.evaluate(async () => {
+export async function runInstantDetection(
+  page: Page,
+  options: { scoreThreshold?: number } = {},
+): Promise<InstantBrowserResult> {
+  return page.evaluate((opts) => {
     const detection = window.__detection;
-    return detection.detectInstantClient(window);
-  });
+    return detection.detectInstantClient(window, opts);
+  }, options);
 }
 
 export async function runInstantDetectionAsync(
@@ -329,7 +345,10 @@ export function triggeredSignalIds(
 interface HarnessWindow extends Window {
   __harnessReady?: boolean;
   __detection: {
-    detectInstantClient: (context: Window) => InstantBrowserResult;
+    detectInstantClient: (
+      context: Window,
+      options?: { scoreThreshold?: number },
+    ) => InstantBrowserResult;
     detectInstantClientAsync: (
       context: Window,
     ) => Promise<InstantBrowserResult & { isShaderF16Supported: boolean | null }>;

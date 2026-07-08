@@ -22,6 +22,30 @@ export interface ExtendedWindow extends Omit<Window, "document" | "navigator"> {
   navigator: ExtendedNavigator;
 }
 
+export type InstantConfidenceLevel = "high" | "medium" | "low";
+
+/** One weighted instant check, mirroring behavioral and server signals. */
+export interface InstantSignal {
+  /** Matches the corresponding boolean field on {@link InstantClientResult} */
+  id: string;
+  description: string;
+  triggered: boolean;
+  weight: number;
+  confidence: InstantConfidenceLevel;
+  /** `weight` when triggered, else 0 */
+  score: number;
+}
+
+export interface InstantDetectorOptions {
+  /**
+   * Suspicion score at/above which `isLegitClient` becomes false.
+   * Defaults to 0.5. Definitive automation markers weigh 0.9–1.0 (blocking on
+   * their own); ambiguous, false-positive-prone checks weigh 0.25–0.35 so they
+   * only block in combination.
+   */
+  scoreThreshold?: number;
+}
+
 export interface InstantClientResult {
   isWebDriver: boolean;
   isPhantomJS: boolean;
@@ -40,6 +64,14 @@ export interface InstantClientResult {
   isAutomationArtifacts: boolean;
   isSuspiciousWebDriverDescriptor: boolean;
   isChromium: boolean;
+  /**
+   * 0 (human) to 1 (definitely automated), aggregated as `1 - Π(1 - weightᵢ)`
+   * over triggered signals — the same formula the behavioral and server layers use.
+   */
+  suspicionScore: number;
+  confidence: InstantConfidenceLevel;
+  /** Per-check breakdown with weights, for explainability */
+  signals: InstantSignal[];
   isLegitClient: boolean;
 }
 

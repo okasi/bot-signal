@@ -10,21 +10,76 @@ import type {
   ExtendedWindow,
   InstantClientAsyncResult,
   InstantClientResult,
+  InstantConfidenceLevel,
+  InstantDetectorOptions,
+  InstantSignal,
 } from "./types.js";
 import { checkShaderF16Support, isChromiumBrowser } from "./webgpu.js";
 
-function parseBrowserVersion(
-  userAgent: string,
-  pattern: RegExp,
-): number {
+const DEFAULT_SCORE_THRESHOLD = 0.5;
+
+/**
+ * Minimum "modern" browser versions. Bump these as the baseline moves —
+ * anything below is flagged (softly) as an outdated or spoofed build.
+ */
+const MODERN_BROWSER_FLOORS = {
+  chrome: 121,
+  firefox: 128,
+  safari: 16.4,
+} as const;
+
+type BooleanChecks = Omit<
+  InstantClientResult,
+  "isChromium" | "suspicionScore" | "confidence" | "signals" | "isLegitClient"
+>;
+
+interface InstantSignalSpec {
+  id: keyof BooleanChecks;
+  description: string;
+  weight: number;
+  confidence: InstantConfidenceLevel;
+  /** Positive-health flags (valid UA, WebGL, modern) trigger when the value is `false` */
+  triggerWhenFalse?: boolean;
+}
+
+/**
+ * Weighted instant checks. Definitive automation markers weigh 0.9–1.0 and
+ * block on their own; ambiguous checks that also fire on legitimate clients
+ * (in-app browsers, F11 fullscreen, GPU-less VMs, older builds) weigh 0.25–0.35
+ * so they only cross the default 0.5 threshold in combination.
+ */
+const INSTANT_SIGNAL_SPECS: InstantSignalSpec[] = [
+  { id: "isWebDriver", description: "navigator.webdriver is set", weight: 1, confidence: "high" },
+  { id: "isAutomationArtifacts", description: "ChromeDriver/Puppeteer/Playwright artifacts present", weight: 1, confidence: "high" },
+  { id: "isSelenium", description: "Selenium markers on document", weight: 1, confidence: "high" },
+  { id: "isPhantomJS", description: "PhantomJS globals present", weight: 1, confidence: "high" },
+  { id: "isNightmare", description: "Nightmare.js marker present", weight: 1, confidence: "high" },
+  { id: "isDomAutomation", description: "DOM automation controller globals present", weight: 1, confidence: "high" },
+  { id: "isHeadless", description: "HeadlessChrome user agent or webdriver flag", weight: 0.9, confidence: "high" },
+  { id: "isSuspiciousWebDriverDescriptor", description: "navigator.webdriver descriptor was tampered with", weight: 0.9, confidence: "high" },
+  { id: "isSuspiciousResolution", description: "Screen smaller than any real device", weight: 0.7, confidence: "medium" },
+  { id: "isUserAgentValid", description: "User agent lacks the standard Mozilla/5.0 prefix", weight: 0.7, confidence: "high", triggerWhenFalse: true },
+  { id: "isSoftwareRenderer", description: "WebGL uses a software renderer (SwiftShader/llvmpipe)", weight: 0.6, confidence: "medium" },
+  { id: "isMissingChromeObject", description: "Chromium user agent without chrome.runtime", weight: 0.35, confidence: "low" },
+  { id: "isWebGLSupported", description: "No WebGL context available", weight: 0.35, confidence: "low", triggerWhenFalse: true },
+  { id: "isSuspiciousWindowDimensions", description: "No window chrome and parked at the screen origin", weight: 0.3, confidence: "low" },
+  { id: "isModern", description: "Browser build is below the modern baseline", weight: 0.3, confidence: "low", triggerWhenFalse: true },
+  { id: "isEmptyPlugins", description: "Desktop Chromium with an empty plugin list", weight: 0.25, confidence: "low" },
+];
+
+const SHADER_F16_SPEC = {
+  id: "isShaderF16Supported",
+  description: "WebGPU shader-f16 feature is missing on Chromium",
+  weight: 0.3,
+  confidence: "low" as InstantConfidenceLevel,
+};
+
+function parseBrowserVersion(userAgent: string, pattern: RegExp): number {
   const match = userAgent.match(pattern);
   return parseFloat(match?.[1] ?? "0");
 }
 
-function detectSync(context: ExtendedWindow): Omit<
-  InstantClientResult,
-  "isChromium" | "isLegitClient"
-> {
+function detectSync(context: ExtendedWindow): BooleanChecks {
   // Inspired by Cloudflare https://scrapeops.io/web-scraping-playbook/how-to-bypass-cloudflare/#low-level-bypass
   const isWebDriver = Boolean(context.navigator?.webdriver);
   const isPhantomJS = Boolean(context.callPhantom || context._phantom);
@@ -54,12 +109,15 @@ function detectSync(context: ExtendedWindow): Omit<
   const userAgent = context.navigator.userAgent;
   const isModern =
     (userAgent.includes("Chrome/") &&
-      parseBrowserVersion(userAgent, /Chrome\/(\d+\.\d+)/) >= 121) ||
+      parseBrowserVersion(userAgent, /Chrome\/(\d+\.\d+)/) >=
+        MODERN_BROWSER_FLOORS.chrome) ||
     (userAgent.includes("Firefox/") &&
-      parseBrowserVersion(userAgent, /Firefox\/(\d+\.\d+)/) >= 128) ||
+      parseBrowserVersion(userAgent, /Firefox\/(\d+\.\d+)/) >=
+        MODERN_BROWSER_FLOORS.firefox) ||
     (userAgent.includes("Safari") &&
       !userAgent.includes("Chrome") &&
-      parseBrowserVersion(userAgent, /Version\/(\d+\.\d+)/) >= 16.4);
+      parseBrowserVersion(userAgent, /Version\/(\d+\.\d+)/) >=
+        MODERN_BROWSER_FLOORS.safari);
 
   return {
     isWebDriver,
@@ -81,62 +139,120 @@ function detectSync(context: ExtendedWindow): Omit<
   };
 }
 
-function computeIsLegitClient(
-  checks: Omit<InstantClientResult, "isLegitClient"> & {
-    isShaderF16Supported?: boolean | null;
-  },
-): boolean {
-  const shaderF16Passes =
-    checks.isShaderF16Supported === undefined ||
-    checks.isShaderF16Supported === null ||
-    checks.isShaderF16Supported;
-
-  return (
-    !checks.isWebDriver &&
-    !checks.isPhantomJS &&
-    !checks.isNightmare &&
-    !checks.isSelenium &&
-    !checks.isDomAutomation &&
-    !checks.isHeadless &&
-    !checks.isSuspiciousResolution &&
-    checks.isUserAgentValid &&
-    checks.isWebGLSupported &&
-    checks.isModern &&
-    !checks.isMissingChromeObject &&
-    !checks.isSoftwareRenderer &&
-    !checks.isSuspiciousWindowDimensions &&
-    !checks.isEmptyPlugins &&
-    !checks.isAutomationArtifacts &&
-    !checks.isSuspiciousWebDriverDescriptor &&
-    shaderF16Passes
-  );
+function createSignal(
+  id: string,
+  description: string,
+  triggered: boolean,
+  weight: number,
+  confidence: InstantConfidenceLevel,
+): InstantSignal {
+  return { id, description, triggered, weight, confidence, score: triggered ? weight : 0 };
 }
 
 /**
- * Instant environment checks (automation, headless, UA, WebGL, etc.).
- * For Chromium WebGPU `shader-f16` validation, use {@link detectInstantClientAsync}.
+ * Builds the weighted instant signal list from the boolean checks. Pass
+ * `shaderF16Supported` (a `boolean`) to include the async WebGPU signal;
+ * `null`/`undefined` omits it.
  */
-export function detectInstantClient(
-  context: ExtendedWindow,
+export function buildInstantSignals(
+  checks: BooleanChecks,
+  shaderF16Supported?: boolean | null,
+): InstantSignal[] {
+  const signals = INSTANT_SIGNAL_SPECS.map((spec) => {
+    const value = checks[spec.id];
+    const triggered = spec.triggerWhenFalse ? !value : value;
+    return createSignal(spec.id, spec.description, triggered, spec.weight, spec.confidence);
+  });
+
+  if (shaderF16Supported === false) {
+    signals.push(
+      createSignal(
+        SHADER_F16_SPEC.id,
+        SHADER_F16_SPEC.description,
+        true,
+        SHADER_F16_SPEC.weight,
+        SHADER_F16_SPEC.confidence,
+      ),
+    );
+  }
+
+  return signals;
+}
+
+/** Aggregates triggered instant signal weights as `1 - Π(1 - weightᵢ)`. */
+export function aggregateInstantSuspicionScore(signals: InstantSignal[]): number {
+  let keep = 1;
+  for (const signal of signals) {
+    if (signal.triggered) {
+      keep *= 1 - signal.weight;
+    }
+  }
+  return 1 - keep;
+}
+
+/** Confidence in the verdict based on high-confidence hits and the score. */
+export function resolveInstantConfidence(
+  signals: InstantSignal[],
+  suspicionScore: number,
+): InstantConfidenceLevel {
+  const triggeredHigh = signals.filter(
+    (signal) => signal.triggered && signal.confidence === "high",
+  ).length;
+
+  if (triggeredHigh >= 1 || suspicionScore >= 0.7) {
+    return "high";
+  }
+
+  if (suspicionScore >= 0.35) {
+    return "medium";
+  }
+
+  return "low";
+}
+
+function assemble(
+  checks: BooleanChecks,
+  isChromium: boolean,
+  scoreThreshold: number,
+  shaderF16Supported?: boolean | null,
 ): InstantClientResult {
-  const checks = detectSync(context);
-  const isChromium = isChromiumBrowser(context);
+  const signals = buildInstantSignals(checks, shaderF16Supported);
+  const suspicionScore = aggregateInstantSuspicionScore(signals);
 
   return {
     ...checks,
     isChromium,
-    isLegitClient: computeIsLegitClient({ ...checks, isChromium }),
+    suspicionScore,
+    confidence: resolveInstantConfidence(signals, suspicionScore),
+    signals,
+    isLegitClient: suspicionScore < scoreThreshold,
   };
 }
 
-export default detectInstantClient;
+/**
+ * Instant environment checks (automation, headless, UA, WebGL, etc.), scored
+ * into a weighted `suspicionScore`. For Chromium WebGPU `shader-f16`
+ * validation, use {@link detectInstantClientAsync}.
+ */
+export function detectInstantClient(
+  context: ExtendedWindow,
+  options: InstantDetectorOptions = {},
+): InstantClientResult {
+  const scoreThreshold = options.scoreThreshold ?? DEFAULT_SCORE_THRESHOLD;
+  const checks = detectSync(context);
+  const isChromium = isChromiumBrowser(context);
+
+  return assemble(checks, isChromium, scoreThreshold);
+}
 
 /**
  * Instant checks plus async WebGPU `shader-f16` support on Chromium browsers.
  */
 export async function detectInstantClientAsync(
   context: ExtendedWindow,
+  options: InstantDetectorOptions = {},
 ): Promise<InstantClientAsyncResult> {
+  const scoreThreshold = options.scoreThreshold ?? DEFAULT_SCORE_THRESHOLD;
   const checks = detectSync(context);
   const isChromium = isChromiumBrowser(context);
   const shaderF16Supported = isChromium
@@ -144,14 +260,8 @@ export async function detectInstantClientAsync(
     : null;
 
   return {
-    ...checks,
-    isChromium,
+    ...assemble(checks, isChromium, scoreThreshold, shaderF16Supported),
     isShaderF16Supported: shaderF16Supported,
-    isLegitClient: computeIsLegitClient({
-      ...checks,
-      isChromium,
-      isShaderF16Supported: shaderF16Supported,
-    }),
   };
 }
 

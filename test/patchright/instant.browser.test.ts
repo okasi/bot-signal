@@ -54,11 +54,17 @@ describe("patchright instant detection — real browser context", () => {
     await context.close();
   });
 
-  it("supports WebGL in patchright Chromium", async () => {
+  it("reports WebGL support consistent with a direct probe", async () => {
+    // Headless Chromium 139+ has no software WebGL fallback, so availability
+    // depends on GPU access — assert detection agrees with the platform.
     const { context, page } = await openHarnessPage(browser, server.baseUrl);
     const result = await runInstantDetection(page);
 
-    expect(result.isWebGLSupported).toBe(true);
+    const probe = await page.evaluate(() =>
+      Boolean(document.createElement("canvas").getContext("webgl")),
+    );
+
+    expect(result.isWebGLSupported).toBe(probe);
 
     await context.close();
   });
@@ -142,16 +148,15 @@ describe("patchright instant detection — real browser context", () => {
     await context.close();
   });
 
-  it("default export matches detectInstantClient", async () => {
+  it("exposes only named exports (no default)", async () => {
     const { context, page } = await openHarnessPage(browser, server.baseUrl);
 
-    const matches = await page.evaluate(() => {
+    const hasDefault = await page.evaluate(() => {
       const detection = (window as any).__detection;
-      return JSON.stringify(detection.default(window)) ===
-        JSON.stringify(detection.detectInstantClient(window));
+      return "default" in detection && typeof detection.default === "function";
     });
 
-    expect(matches).toBe(true);
+    expect(hasDefault).toBe(false);
 
     await context.close();
   });

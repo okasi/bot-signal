@@ -46,13 +46,6 @@ export const KNOWN_SUSPICIOUS_TLS_FINGERPRINTS: TlsFingerprintEntry[] = [
     confidence: "high",
   },
   {
-    id: "curl-alt",
-    label: "curl alternate",
-    hash: "3b5074b1b5d032e5620f6fbd716347afd",
-    families: ["curl", "scripting"],
-    confidence: "high",
-  },
-  {
     id: "go-http",
     label: "Go net/http",
     hash: "71a02c3315cd8182f8a3e8b2f8b3f6de",
@@ -67,6 +60,17 @@ export const KNOWN_SUSPICIOUS_TLS_FINGERPRINTS: TlsFingerprintEntry[] = [
     confidence: "medium",
   },
 ];
+
+const JA3_HASH_PATTERN = /^[0-9a-f]{32}$/;
+
+/**
+ * Whether a string is a well-formed JA3 hash (32-character lowercase MD5).
+ * A hash of any other length can never match a real JA3 and is almost always
+ * a typo or a truncated/expanded copy-paste.
+ */
+export function isValidJa3Hash(value: string): boolean {
+  return JA3_HASH_PATTERN.test(value.trim().toLowerCase());
+}
 
 const BROWSER_UA_FAMILIES: UserAgentFamily[] = [
   "chrome",
@@ -90,10 +94,12 @@ const UA_FAMILY_COMPATIBILITY: Record<UserAgentFamily, UserAgentFamily[]> = {
   unknown: [],
 };
 
+/** Lowercases and trims a JA3/JA4 fingerprint for comparison. */
 export function normalizeTlsFingerprint(fingerprint: string): string {
   return fingerprint.trim().toLowerCase();
 }
 
+/** Coarse client family from a User-Agent string (`chrome`, `curl`, `python`, …). */
 export function getUserAgentFamily(userAgent: string | undefined): UserAgentFamily {
   if (!userAgent) {
     return "unknown";
@@ -138,11 +144,13 @@ export function getUserAgentFamily(userAgent: string | undefined): UserAgentFami
   return "unknown";
 }
 
+/** Whether the User-Agent claims to be a real browser (Chrome/Edge/Firefox/Safari). */
 export function isBrowserLikeUserAgent(userAgent: string | undefined): boolean {
   const family = getUserAgentFamily(userAgent);
   return BROWSER_UA_FAMILIES.includes(family);
 }
 
+/** Finds the curated (or caller-supplied) entry matching a TLS fingerprint. */
 export function findTlsFingerprintEntry(
   fingerprint: string,
   extraFingerprints: string[] = [],
@@ -178,6 +186,7 @@ export function findTlsFingerprintEntry(
   return undefined;
 }
 
+/** Whether the fingerprint matches a known automation/scripting TLS client. */
 export function isKnownSuspiciousTlsFingerprint(
   fingerprint: string | undefined,
   extraFingerprints: string[] = [],
@@ -189,6 +198,10 @@ export function isKnownSuspiciousTlsFingerprint(
   return findTlsFingerprintEntry(fingerprint, extraFingerprints) !== undefined;
 }
 
+/**
+ * Whether a recognized TLS fingerprint contradicts the declared User-Agent —
+ * e.g. a curl JA3 hash presented alongside a Chrome UA.
+ */
 export function isTlsUserAgentMismatch(
   fingerprint: string | undefined,
   userAgent: string | undefined,
@@ -212,6 +225,7 @@ export function isTlsUserAgentMismatch(
   return !entry.families.some((family) => compatibleFamilies.includes(family));
 }
 
+/** Browser-like UA arriving without a TLS fingerprint (only when `requireTlsFingerprint`). */
 export function isMissingTlsFingerprint(
   fingerprint: string | undefined,
   userAgent: string | undefined,

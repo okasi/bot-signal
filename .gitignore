@@ -1,5 +1,7 @@
 node_modules/
 dist/
+coverage/
 docs/browser.js
 *.log
 .DS_Store
+.claude

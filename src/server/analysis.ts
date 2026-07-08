@@ -33,6 +33,7 @@ function createSignal(
   };
 }
 
+/** Evaluates every server-side heuristic and returns the weighted signal list. */
 export function buildServerSignals(
   context: ServerClientContext,
   options: ServerDetectorOptions = {},
@@ -56,7 +57,10 @@ export function buildServerSignals(
         context.clientTimezone,
         timezoneToleranceMinutes,
       ),
-      0.5,
+      // Below the default 0.5 threshold on purpose: a lone timezone mismatch is
+      // routine for VPN users and travelers, so it corroborates rather than
+      // blocks on its own.
+      0.45,
       "high",
     ),
     createSignal(

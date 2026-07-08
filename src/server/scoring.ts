@@ -9,6 +9,11 @@ import type {
 } from "./types.js";
 import type { EnrichedServerContext } from "./enrich.js";
 
+/**
+ * Combines triggered signal weights into one score:
+ * `1 - Π(1 - weightᵢ)` — independent-probability union, so extra signals
+ * always raise the score but never past 1.
+ */
 export function aggregateServerSuspicionScore(signals: ServerSignal[]): number {
   const triggered = signals.filter((signal) => signal.triggered);
 
@@ -25,6 +30,7 @@ export function aggregateServerSuspicionScore(signals: ServerSignal[]): number {
   return 1 - score;
 }
 
+/** Confidence in the verdict based on high-confidence signal hits and score. */
 export function resolveServerConfidence(
   signals: ServerSignal[],
   suspicionScore: number,
@@ -62,6 +68,11 @@ function buildResultContext(
   };
 }
 
+/**
+ * Scores an already-enriched request context synchronously. Use this when you
+ * have your own GeoIP/blocklist pipeline; otherwise prefer
+ * {@link detectServerClientAsync}, which fills the context from `clientIp`.
+ */
 export function detectServerClient(
   context: ServerClientContext,
   options: ServerDetectorOptions = {},
@@ -80,6 +91,20 @@ export function detectServerClient(
   };
 }
 
+/**
+ * Scores a request in one call. When `clientIp` is set, the context is
+ * auto-enriched with GeoIP country/timezone and bundled blocklist matches
+ * (datacenter ranges, AbuseIPDB, iCloud Private Relay) before scoring.
+ *
+ * @example
+ * const result = await detectServerClientAsync({
+ *   clientIp: req.ip,
+ *   clientTimezone: req.headers["x-timezone"],
+ *   userAgent: req.headers["user-agent"],
+ *   tlsFingerprint: req.headers["x-ja3-hash"],
+ * });
+ * if (!result.isLegitClient) return res.status(403).end();
+ */
 export async function detectServerClientAsync(
   context: ServerClientContext,
   options: ServerDetectorOptions = {},

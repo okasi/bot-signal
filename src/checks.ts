@@ -89,6 +89,12 @@ export function isEmptyPlugins(context: ExtendedWindow): boolean {
     return false;
   }
 
+  // Mobile Chrome exposes no plugins by design, so an empty list there is
+  // normal, not suspicious — only desktop Chromium ships the fixed PDF set.
+  if (/Mobi|Android/i.test(context.navigator.userAgent)) {
+    return false;
+  }
+
   return context.navigator.plugins.length === 0;
 }
 
@@ -109,26 +115,33 @@ export function isAutomationArtifacts(context: ExtendedWindow): boolean {
   return hasMatchingKey(context.document, DOCUMENT_AUTOMATION_KEY_PATTERNS);
 }
 
-/** `navigator.webdriver` was patched or installed as an own property */
+/** `navigator.webdriver` was patched (own property) or deleted from the prototype */
 export function isSuspiciousWebDriverDescriptor(
   context: ExtendedWindow,
 ): boolean {
-  if (Object.prototype.hasOwnProperty.call(context.navigator, "webdriver")) {
-    return true;
-  }
+  const navigator = context.navigator;
 
-  if (typeof Navigator === "undefined" || typeof window === "undefined") {
-    return false;
+  // Genuine browsers define the getter on Navigator.prototype — an own
+  // property means an automation framework redefined it.
+  if (Object.prototype.hasOwnProperty.call(navigator, "webdriver")) {
+    return true;
   }
 
   if (!isChromiumBrowser(context)) {
     return false;
   }
 
-  const prototypeDescriptor = Object.getOwnPropertyDescriptor(
-    Navigator.prototype,
-    "webdriver",
-  );
+  // Stealth patches sometimes delete the descriptor outright; a Chromium
+  // navigator without `webdriver` anywhere on its prototype chain is tampered.
+  for (
+    let prototype = Object.getPrototypeOf(navigator);
+    prototype !== null;
+    prototype = Object.getPrototypeOf(prototype)
+  ) {
+    if (Object.prototype.hasOwnProperty.call(prototype, "webdriver")) {
+      return false;
+    }
+  }
 
-  return !prototypeDescriptor;
+  return true;
 }

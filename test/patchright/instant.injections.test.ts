@@ -148,7 +148,7 @@ describe("patchright instant detection — injected automation markers", () => {
     await context.close();
   });
 
-  it("flags missing chrome.runtime on Chromium UA", async () => {
+  it("treats missing chrome.runtime as a soft, non-blocking signal", async () => {
     const { context, page } = await openHarnessPage(browser, server.baseUrl);
 
     await page.evaluate(() => {
@@ -156,9 +156,15 @@ describe("patchright instant detection — injected automation markers", () => {
     });
 
     const result = await runInstantDetection(page);
+    const strict = await runInstantDetection(page, { scoreThreshold: 0.3 });
+    const signal = result.signals.find((s) => s.id === "isMissingChromeObject");
 
     expect(result.isMissingChromeObject).toBe(true);
-    expect(result.isLegitClient).toBe(false);
+    expect(signal?.triggered).toBe(true);
+    // Weighted below the default threshold — no longer a hard block on its own
+    // (headless may still cross 0.5 once WebGL absence stacks on top).
+    expect(signal?.weight).toBeLessThan(0.5);
+    expect(strict.isLegitClient).toBe(false);
 
     await context.close();
   });
@@ -195,7 +201,7 @@ describe("patchright instant detection — injected automation markers", () => {
     await context.close();
   });
 
-  it("flags empty plugins when overridden", async () => {
+  it("treats empty plugins as a soft, non-blocking signal", async () => {
     const { context, page } = await openHarnessPage(browser, server.baseUrl);
 
     await page.evaluate(() => {
@@ -206,9 +212,13 @@ describe("patchright instant detection — injected automation markers", () => {
     });
 
     const result = await runInstantDetection(page);
+    const strict = await runInstantDetection(page, { scoreThreshold: 0.2 });
+    const signal = result.signals.find((s) => s.id === "isEmptyPlugins");
 
     expect(result.isEmptyPlugins).toBe(true);
-    expect(result.isLegitClient).toBe(false);
+    expect(signal?.triggered).toBe(true);
+    expect(signal?.weight).toBeLessThan(0.5);
+    expect(strict.isLegitClient).toBe(false);
 
     await context.close();
   });

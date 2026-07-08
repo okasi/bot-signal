@@ -25,8 +25,8 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Test
-        run: npm test
+      - name: Unit coverage
+        run: npm run test:coverage
 
       - name: Install Patchright Chromium
         run: npx patchright install chromium
@@ -36,3 +36,6 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Package lint
+        run: npm run lint:package
