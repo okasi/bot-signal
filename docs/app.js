@@ -312,6 +312,7 @@ const TRAIL_WINDOW_MS = 6_000;
 const trail = [];
 const marks = []; // clicks & synthetic events
 const counts = { moves: 0, scrolls: 0, keys: 0, clicks: 0, synthetic: 0 };
+let trailSequence = 0;
 
 function sizeCanvas() {
   const dpr = window.devicePixelRatio || 1;
@@ -341,7 +342,8 @@ window.addEventListener(
   (event) => {
     bumpCounter("count-moves", "moves");
     if (!event.isTrusted) bumpCounter("count-synthetic", "synthetic");
-    trail.push({ ...toCanvas(event.clientX, event.clientY), t: performance.now(), trusted: event.isTrusted });
+    trail.push({ ...toCanvas(event.clientX, event.clientY), t: performance.now(), trusted: event.isTrusted, seq: trailSequence });
+    trailSequence += 1;
     if (trail.length > 600) trail.shift();
   },
   { passive: true },
@@ -371,13 +373,7 @@ function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-function drawPoint(point, color, alpha, radius) {
-  ctx.globalAlpha = alpha * 0.24;
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.arc(point.x, point.y, radius + 4, 0, Math.PI * 2);
-  ctx.fill();
-
+function drawCheckpoint(point, color, alpha, radius) {
   ctx.globalAlpha = alpha;
   ctx.fillStyle = color;
   ctx.beginPath();
@@ -413,11 +409,11 @@ function drawTrail() {
   }
 
   // movement checkpoints
-  for (let i = 0; i < trail.length; i += 4) {
-    const point = trail[i];
+  for (const point of trail) {
+    if (point.seq % 8 !== 0) continue;
     const age = (now - point.t) / TRAIL_WINDOW_MS;
-    const alpha = Math.max(0, 1 - age) * 0.95;
-    drawPoint(point, point.trusted ? accent : bad, alpha, point.trusted ? 2.4 : 3.2);
+    const alpha = Math.max(0, 1 - age) * 0.42;
+    drawCheckpoint(point, point.trusted ? accent : bad, alpha, point.trusted ? 1.7 : 2.1);
   }
 
   // clicks
