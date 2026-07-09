@@ -859,8 +859,8 @@ button {
 
 .check-card {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.15rem 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.18rem 0.9rem;
   align-content: start;
   padding: 0.85rem 1rem;
   border: 1px solid var(--hairline);
@@ -893,32 +893,84 @@ button {
   overflow-wrap: anywhere;
 }
 
-.check-card__status {
-  grid-row: 1 / 3;
+.check-card__result {
+  grid-row: 1 / 4;
   grid-column: 2;
   align-self: center;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  font-size: 0.75rem;
-  font-weight: 750;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  display: grid;
+  gap: 0.05rem;
+  min-width: 4.7rem;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  text-align: center;
 }
 
-.check-card__status--pass {
+.check-card__result-label {
+  font-size: 0.62rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.check-card__result-value {
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  font-weight: 750;
+  line-height: 1.1;
+}
+
+.check-card__result--pass .check-card__result-value {
   color: var(--good-text);
 }
 
-.check-card__status--flag {
+.check-card__result--flag .check-card__result-value {
   color: var(--bad-text);
 }
 
-.check-card__status--soft {
+.check-card__result--soft .check-card__result-value {
   color: var(--warn);
 }
 
-.check-card__status--na {
+.check-card__result--na .check-card__result-value {
+  color: var(--ink-muted);
+}
+
+.check-card__verdict {
+  grid-column: 1;
+  width: fit-content;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid var(--hairline);
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+}
+
+.check-card__verdict--pass {
+  color: var(--good-text);
+  border-color: color-mix(in srgb, var(--good) 36%, transparent);
+  background: var(--good-wash);
+}
+
+.check-card__verdict--flag {
+  color: var(--bad-text);
+  border-color: color-mix(in srgb, var(--bad) 40%, transparent);
+  background: var(--bad-wash);
+}
+
+.check-card__verdict--soft {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  background: var(--warn-wash);
+}
+
+.check-card__verdict--na {
   color: var(--ink-muted);
 }
 

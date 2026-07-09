@@ -96,17 +96,32 @@ function softSignalIds(result) {
 
 function checkStatus(key, value, kind, soft) {
   if (kind === "info") {
-    return { state: "na", label: value ? "yes" : "no" };
+    return {
+      state: "na",
+      result: typeof value === "boolean" ? String(value) : "n/a",
+      verdict: "Informational",
+    };
   }
   if (kind === "shader") {
-    if (value === undefined) return { state: "na", label: "async only" };
-    if (value === null) return { state: "na", label: "n/a" };
-    if (value) return { state: "pass", label: "pass" };
-    return soft ? { state: "soft", label: "soft" } : { state: "flag", label: "flag" };
+    if (value === undefined) {
+      return { state: "na", result: "n/a", verdict: "Run async check" };
+    }
+    if (value === null) {
+      return { state: "na", result: "n/a", verdict: "Not available" };
+    }
+    if (value) {
+      return { state: "pass", result: "true", verdict: "Not suspicious" };
+    }
+    return soft
+      ? { state: "soft", result: "false", verdict: "Soft suspicious" }
+      : { state: "flag", result: "false", verdict: "Suspicious" };
   }
   const flagged = kind === "good" ? !value : Boolean(value);
-  if (!flagged) return { state: "pass", label: "pass" };
-  return soft ? { state: "soft", label: "soft" } : { state: "flag", label: "flag" };
+  const result = String(Boolean(value));
+  if (!flagged) return { state: "pass", result, verdict: "Not suspicious" };
+  return soft
+    ? { state: "soft", result, verdict: "Soft suspicious" }
+    : { state: "flag", result, verdict: "Suspicious" };
 }
 
 function countFlags(result) {
@@ -132,11 +147,11 @@ function renderChecks(result) {
   const soft = softSignalIds(result);
   const { triggered, softCount, total } = countFlags(result);
   const softNote = softCount ? ` (${softCount} soft)` : "";
-  $("instant-count").textContent = `${triggered} flagged${softNote} · ${total - triggered} passed · ${total} checks`;
+  $("instant-count").textContent = `${triggered} suspicious${softNote} · ${total - triggered} not suspicious · ${total} checks`;
 
   let shown = 0;
   CHECKS.forEach(([key, desc, kind], index) => {
-    const { state, label } = checkStatus(key, result[key], kind, soft.has(key));
+    const { state, result: resultText, verdict } = checkStatus(key, result[key], kind, soft.has(key));
     const isTriggered = state === "flag" || state === "soft";
     const visible =
       instantFilter === "all" ||
@@ -150,12 +165,13 @@ function renderChecks(result) {
     card.className = `check-card${modifier}`;
     card.style.animationDelay = `${Math.min(index * 22, 400)}ms`;
 
-    const icon = state === "flag" ? "✕" : state === "soft" ? "▲" : state === "pass" ? "✓" : "·";
     card.innerHTML = `
       <span class="check-card__name">${key}</span>
-      <span class="check-card__status check-card__status--${state}">
-        <span aria-hidden="true">${icon}</span>${label}
+      <span class="check-card__result check-card__result--${state}">
+        <span class="check-card__result-label">Result</span>
+        <span class="check-card__result-value">${resultText}</span>
       </span>
+      <span class="check-card__verdict check-card__verdict--${state}">${verdict}</span>
       <span class="check-card__desc">${desc}</span>
     `;
     grid.appendChild(card);
@@ -166,7 +182,7 @@ function renderChecks(result) {
     empty.className = "check-grid__empty";
     empty.textContent =
       instantFilter === "flagged"
-        ? "Nothing flagged — this browser passes every instant check."
+        ? "Nothing suspicious — this browser passes every instant check."
         : "No checks match this filter.";
     grid.appendChild(empty);
   }
