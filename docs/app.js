@@ -371,6 +371,20 @@ function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+function drawPoint(point, color, alpha, radius) {
+  ctx.globalAlpha = alpha * 0.24;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, radius + 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 function drawTrail() {
   const rect = canvas.getBoundingClientRect();
   ctx.clearRect(0, 0, rect.width, rect.height);
@@ -398,14 +412,22 @@ function drawTrail() {
     ctx.stroke();
   }
 
+  // movement checkpoints
+  for (let i = 0; i < trail.length; i += 4) {
+    const point = trail[i];
+    const age = (now - point.t) / TRAIL_WINDOW_MS;
+    const alpha = Math.max(0, 1 - age) * 0.95;
+    drawPoint(point, point.trusted ? accent : bad, alpha, point.trusted ? 2.4 : 3.2);
+  }
+
   // clicks
   for (const mark of marks) {
     const age = (now - mark.t) / TRAIL_WINDOW_MS;
     ctx.globalAlpha = Math.max(0, 1 - age);
     ctx.strokeStyle = mark.trusted ? accent : bad;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = mark.trusted ? 2.5 : 3.5;
     ctx.beginPath();
-    ctx.arc(mark.x, mark.y, 7 + age * 10, 0, Math.PI * 2);
+    ctx.arc(mark.x, mark.y, 8 + age * 12, 0, Math.PI * 2);
     ctx.stroke();
   }
 
