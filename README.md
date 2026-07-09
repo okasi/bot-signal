@@ -455,7 +455,9 @@ git push origin main --follow-tags
 
 Or re-run **Actions → Publish npm → Run workflow**.
 
-See [AGENTS.md](AGENTS.md) for architecture and contributor guidance.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for local development and pull request checks,
+[SECURITY.md](SECURITY.md) for private vulnerability reporting, and [AGENTS.md](AGENTS.md)
+for architecture guidance.
 
 ## License
 
