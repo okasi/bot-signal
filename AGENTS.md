@@ -43,8 +43,8 @@ src/
     timezone.ts               # TZ offset + accept-language checks
     types.ts
 data/                         # bundled blocklists (shipped in npm package)
-docs/                         # GitHub Pages demo site (index.html + app.js)
-scripts/build-site.ts         # copies dist/browser.js into docs/
+docs/                         # GitHub Pages demo source (index.html + app.js)
+scripts/build-site.ts         # builds .pages/ with dist/browser.js + stamped asset URLs
 scripts/update-ip-data.ts     # fetches and writes data/*.csv
 test/                         # vitest unit + patchright browser tests
   fixtures/harness.html         # DOM fixtures for browser tests
@@ -52,7 +52,7 @@ test/                         # vitest unit + patchright browser tests
   patchright/                   # real Chromium tests via patchright
 .github/workflows/
   ci.yml                      # typecheck + unit + patchright + build (Node 22+)
-  pages.yml                   # build docs/ and push to gh-pages branch
+  pages.yml                   # build .pages/ and deploy via GitHub Pages Actions
   publish.yml                 # publish to npm on v* tags
   update-ip-data.yml          # weekly blocklist refresh
 ```
@@ -69,7 +69,7 @@ npm run test:all            # unit + patchright
 npm run build
 npm run lint:package        # publint + Are The Types Wrong
 npm run check               # typecheck + coverage + patchright + build + package lint
-npm run build:site        # GitHub Pages demo in docs/
+npm run build:site        # GitHub Pages artifact in .pages/
 npm run update:ip-data    # refresh data/*.csv from upstream sources
 ```
 

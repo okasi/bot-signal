@@ -418,12 +418,12 @@ npm run test:patchright           # real Chromium via patchright
 npm run build
 npm run lint:package              # publint + Are The Types Wrong
 npm run check                     # typecheck + coverage + patchright + build + package lint
-npm run build:site                # copy browser bundle into docs/ for GitHub Pages
+npm run build:site                # generate the GitHub Pages artifact in .pages/
 ```
 
-Live demo: https://okasi.github.io/detect-bot-client/ (deployed from `docs/` on push to `main`).
+Live demo: https://okasi.github.io/detect-bot-client/ (deployed from `.pages/` on push to `main`).
 
-**GitHub Pages setup (one time):** Settings → Pages → Build and deployment → **Deploy from a branch** → Branch: `gh-pages` / `/ (root)`.
+**GitHub Pages setup (one time):** Settings → Pages → Build and deployment → **GitHub Actions**.
 
 ### Publish to npm
 

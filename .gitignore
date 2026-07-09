@@ -1,6 +1,7 @@
 node_modules/
 dist/
 coverage/
+.pages/
 docs/browser.js
 *.log
 .DS_Store
