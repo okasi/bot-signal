@@ -545,9 +545,14 @@ async function replayBotScript() {
     await sleep(90);
   }
 
-  // robotic typing
-  for (let step = 0; step < 8; step += 1) {
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true }));
+  // robotic typing into the visible sample field
+  const typingInput = $("type-input");
+  typingInput.value = "";
+  typingInput.focus();
+  for (const char of "bot typing") {
+    typingInput.value += char;
+    typingInput.dispatchEvent(new KeyboardEvent("keydown", { key: char, bubbles: true }));
+    typingInput.dispatchEvent(new InputEvent("input", { data: char, inputType: "insertText", bubbles: true }));
     await sleep(35);
   }
 
