@@ -239,7 +239,7 @@ after leaving the window are recognized and never counted against the user.
 | `known-suspicious-tls` | 0.55 | high | JA3 matches Python/curl/Go/Java |
 | `tls-user-agent-mismatch` | 0.50 | high | JA3 conflicts with User-Agent |
 | `missing-tls-fingerprint` | 0.25 | medium | Browser UA without JA3 |
-| `accept-language-geo-mismatch` | 0.20 | low | No Accept-Language region matches GeoIP country (region-less headers pass) |
+| `accept-language-geo-mismatch` | 0.20 | low | No acceptable Accept-Language country matches GeoIP (region-less, numeric-region, and q=0-only headers pass) |
 | `datacenter-browser-mismatch` | 0.35 | medium | Datacenter IP + browser UA |
 | `abuse-listed-ip` | 0.60 | high | AbuseIPDB 30-day blocklist |
 | `icloud-private-relay` | 0.15 | low | iCloud Private Relay egress |
