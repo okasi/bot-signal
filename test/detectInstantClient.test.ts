@@ -60,7 +60,7 @@ function createMockContext(
   ) as ExtendedWindow["navigator"];
 
   return {
-    chrome: { runtime: {} },
+    chrome: {},
     outerWidth: 1920,
     outerHeight: 1080,
     innerWidth: 1900,
@@ -168,15 +168,30 @@ describe("detectInstantClient", () => {
     expect(result.isModern).toBe(false);
   });
 
-  it("treats a missing chrome.runtime as a soft signal (in-app browsers)", () => {
+  it("does not require chrome.runtime on ordinary Chromium pages", () => {
+    const result = detectInstantClient(
+      createMockContext({
+        chrome: {},
+      }),
+    );
+
+    expect(result.isMissingChromeObject).toBe(false);
+    expect(
+      result.signals.find((s) => s.id === "isMissingChromeObject")?.triggered,
+    ).toBe(false);
+    expect(result.suspicionScore).toBe(0);
+    expect(result.isLegitClient).toBe(true);
+  });
+
+  it("treats a missing window.chrome as a soft signal (in-app browsers)", () => {
     const result = detectInstantClient(
       createMockContext({
         chrome: undefined,
       }),
     );
 
-    // In-app browsers (Instagram, Facebook, WebViews) have a Chrome UA but no
-    // chrome.runtime — a soft signal that must not block on its own.
+    // In-app browsers (Instagram, Facebook, WebViews) can have a Chrome UA but
+    // no window.chrome — a soft signal that must not block on its own.
     expect(result.isMissingChromeObject).toBe(true);
     expect(
       result.signals.find((s) => s.id === "isMissingChromeObject")?.triggered,

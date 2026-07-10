@@ -36,14 +36,16 @@ function hasMatchingKey(target: object, patterns: RegExp[]): boolean {
   return false;
 }
 
-/** Chromium UA without a plausible `window.chrome.runtime` object */
+/** Chromium UA without the browser-provided `window.chrome` object */
 export function isMissingChromeObject(context: ExtendedWindow): boolean {
   if (!isChromiumBrowser(context)) {
     return false;
   }
 
-  const chrome = context.chrome as { runtime?: unknown } | undefined;
-  return chrome?.runtime === undefined;
+  // `chrome.runtime` is an extension API and is not guaranteed to be exposed
+  // to ordinary web pages. Only the absence of the browser marker itself is
+  // suspicious; requiring `runtime` makes legitimate Chromium look automated.
+  return context.chrome === undefined;
 }
 
 /** WebGL reports a software renderer such as SwiftShader or llvmpipe */

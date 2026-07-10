@@ -60,7 +60,7 @@ const INSTANT_SIGNAL_SPECS: InstantSignalSpec[] = [
   { id: "isSuspiciousResolution", description: "Screen smaller than any real device", weight: 0.7, confidence: "medium" },
   { id: "isUserAgentValid", description: "User agent lacks the standard Mozilla/5.0 prefix", weight: 0.7, confidence: "high", triggerWhenFalse: true },
   { id: "isSoftwareRenderer", description: "WebGL uses a software renderer (SwiftShader/llvmpipe)", weight: 0.6, confidence: "medium" },
-  { id: "isMissingChromeObject", description: "Chromium user agent without chrome.runtime", weight: 0.35, confidence: "low" },
+  { id: "isMissingChromeObject", description: "Chromium user agent without window.chrome", weight: 0.35, confidence: "low" },
   { id: "isWebGLSupported", description: "No WebGL context available", weight: 0.35, confidence: "low", triggerWhenFalse: true },
   { id: "isSuspiciousWindowDimensions", description: "No window chrome and parked at the screen origin", weight: 0.3, confidence: "low" },
   { id: "isModern", description: "Browser build is below the modern baseline", weight: 0.3, confidence: "low", triggerWhenFalse: true },

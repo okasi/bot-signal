@@ -148,7 +148,7 @@ describe("patchright instant detection — injected automation markers", () => {
     await context.close();
   });
 
-  it("treats missing chrome.runtime as a soft, non-blocking signal", async () => {
+  it("treats missing window.chrome as a soft, non-blocking signal", async () => {
     const { context, page } = await openHarnessPage(browser, server.baseUrl);
 
     await page.evaluate(() => {

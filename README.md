@@ -204,7 +204,7 @@ the result for inspection, alongside `signals[]` with per-check weights.
 | `isSuspiciousResolution` | 0.7 | Screen < 136×170 |
 | `isUserAgentValid` | 0.7 | UA does not start with `Mozilla/5.0 (` |
 | `isSoftwareRenderer` | 0.6 | SwiftShader / llvmpipe WebGL |
-| `isMissingChromeObject` | 0.35 | Chromium without `chrome.runtime` (in-app browsers) |
+| `isMissingChromeObject` | 0.35 | Chromium without `window.chrome` (in-app browsers) |
 | `isWebGLSupported` | 0.35 | No WebGL context (GPU-less VMs, headless Chromium 139+) |
 | `isSuspiciousWindowDimensions` | 0.3 | No browser chrome + origin placement (F11 fullscreen) |
 | `isModern` | 0.3 | Below Chrome 121 / Firefox 128 / Safari 16.4 |

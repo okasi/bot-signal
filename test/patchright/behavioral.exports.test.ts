@@ -173,7 +173,7 @@ describe("patchright standalone instant helpers in browser", () => {
     await context.close();
   });
 
-  it("isMissingChromeObject is false when chrome.runtime exists", async () => {
+  it("isMissingChromeObject returns boolean in real Chromium", async () => {
     const { context, page } = await openHarnessPage(browser, server.baseUrl);
 
     const value = await page.evaluate(() => {
