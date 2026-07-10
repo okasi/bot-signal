@@ -591,8 +591,42 @@ describe("isAcceptLanguageGeoMismatch", () => {
   });
 
   it("passes when a region matches the GeoIP country", () => {
-    expect(isAcceptLanguageGeoMismatch("en-US,en;q=0.9", "US")).toBe(false);
-    expect(isAcceptLanguageGeoMismatch("fr-FR,en-US;q=0.8", "US")).toBe(false);
+    // Arrange
+    const acceptLanguages = [
+      "en-US,en;q=0.9",
+      "fr-FR,en-US;q=0.8",
+      "en_US,en;q=0.9",
+    ];
+
+    // Act
+    const results = acceptLanguages.map((header) =>
+      isAcceptLanguageGeoMismatch(header, "US"),
+    );
+
+    // Assert
+    expect(results).toEqual([false, false, false]);
+  });
+
+  it("ignores unacceptable or invalid q-value entries", () => {
+    // Arrange
+    const acceptLanguages = [
+      "en-US;q=0,fr-FR;q=1",
+      "en-US;q=bogus,fr-FR",
+      "en-US;q=0.000,fr-FR;q=1.000",
+      "en-US;q=0.1234,fr-FR",
+      "en-US;q=0,*;q=0",
+      "fr-FR,*;q=0",
+      "en-US;Q=0,fr-FR",
+      "fr-FR,en-US;q=0.001",
+    ];
+
+    // Act
+    const results = acceptLanguages.map((header) =>
+      isAcceptLanguageGeoMismatch(header, "US"),
+    );
+
+    // Assert
+    expect(results).toEqual([true, true, true, true, false, true, true, false]);
   });
 
   it("does not flag region-less language tags", () => {
@@ -603,6 +637,19 @@ describe("isAcceptLanguageGeoMismatch", () => {
   it("handles script subtags like zh-Hant-TW", () => {
     expect(isAcceptLanguageGeoMismatch("zh-Hant-TW", "TW")).toBe(false);
     expect(isAcceptLanguageGeoMismatch("zh-Hant-TW", "US")).toBe(true);
+  });
+
+  it("ignores extension, private-use, numeric, and invalid regions", () => {
+    // Arrange
+    const acceptLanguages = ["en-u-ca-gregory", "en-x-us", "es-419", "bogus-@@"];
+
+    // Act
+    const results = acceptLanguages.map((header) =>
+      isAcceptLanguageGeoMismatch(header, "US"),
+    );
+
+    // Assert
+    expect(results).toEqual([false, false, false, false]);
   });
 
   it("treats wildcard as a pass", () => {
