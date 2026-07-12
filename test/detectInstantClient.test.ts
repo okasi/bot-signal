@@ -3,12 +3,20 @@ import {
   checkShaderF16Support,
   detectInstantClient,
   detectInstantClientAsync,
+  isHuman,
+  isHumanAsync,
   isAutomationArtifacts,
+  isChromeDriver,
   isEmptyPlugins,
+  isLanguageInconsistent,
   isMissingChromeObject,
+  isPlaywright,
+  isPluginMimeTypeInconsistent,
+  isPuppeteer,
   isSoftwareRenderer,
   isSuspiciousWindowDimensions,
   isChromiumBrowser,
+  isUserAgentDataMismatch,
 } from "../src/detectInstantClient.js";
 import type { ExtendedWindow } from "../src/types.js";
 
@@ -38,6 +46,9 @@ function createMockContext(
       userAgent:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
       plugins: { length: 3 },
+      mimeTypes: { length: 2 },
+      language: "en-US",
+      languages: ["en-US", "en"],
     },
   );
 
@@ -92,6 +103,11 @@ describe("detectInstantClient", () => {
     expect(result.isSuspiciousWindowDimensions).toBe(false);
     expect(result.isEmptyPlugins).toBe(false);
     expect(result.isAutomationArtifacts).toBe(false);
+    expect(result.automation).toMatchObject({
+      isAutomated: false,
+      kind: "unknown",
+      alternatives: [],
+    });
   });
 
   it("flags webdriver clients", () => {
@@ -115,6 +131,7 @@ describe("detectInstantClient", () => {
 
     expect(result.isSelenium).toBe(true);
     expect(result.isLegitClient).toBe(false);
+    expect(result.automation.kind).toBe("selenium");
   });
 
   it("flags suspicious resolutions", () => {
@@ -286,6 +303,7 @@ describe("detectInstantClient", () => {
       createMockContext({
         navigator: {
           plugins: { length: 0 },
+          mimeTypes: { length: 0 },
         } as ExtendedWindow["navigator"],
       }),
     );
@@ -301,6 +319,7 @@ describe("detectInstantClient", () => {
         userAgent:
           "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36",
         plugins: { length: 0 },
+        mimeTypes: { length: 0 },
       } as ExtendedWindow["navigator"],
     });
 
@@ -362,15 +381,39 @@ describe("detectInstantClient", () => {
     );
 
     expect(result.isAutomationArtifacts).toBe(true);
+    expect(result.isPlaywright).toBe(true);
+    expect(result.automation.kind).toBe("playwright");
     expect(result.isLegitClient).toBe(false);
   });
 
   it("flags automation artifact key patterns on window", () => {
     const context = createMockContext({
-      cdc_test_marker_: true,
+      cdc_adoQpoasnfa76pfcZLmcfl_Array: true,
     } as Partial<ExtendedWindow>);
 
     expect(isAutomationArtifacts(context)).toBe(true);
+  });
+
+  it("does not treat unrelated __pw-prefixed application globals as Playwright", () => {
+    const context = createMockContext({
+      __pwaManifest: {},
+      __pwaConfig: {},
+    } as Partial<ExtendedWindow>);
+
+    expect(isPlaywright(context)).toBe(false);
+    expect(isAutomationArtifacts(context)).toBe(false);
+    expect(detectInstantClient(context).isLegitClient).toBe(true);
+  });
+
+  it("does not treat application cdc globals as ChromeDriver", () => {
+    const context = createMockContext({
+      cdc_feature_flag_: true,
+      $cdc_store: true,
+    } as Partial<ExtendedWindow>);
+
+    expect(isChromeDriver(context)).toBe(false);
+    expect(isAutomationArtifacts(context)).toBe(false);
+    expect(detectInstantClient(context).isLegitClient).toBe(true);
   });
 
   it("flags direct Playwright manual and WebDriver cache artifacts", () => {
@@ -386,12 +429,15 @@ describe("detectInstantClient", () => {
     const result = detectInstantClient(
       createMockContext({
         document: {
-          $cdc_asdfasdfasdf: true,
+          $cdc_adoQpoasnfa76pfcZLmcfl_: true,
         } as ExtendedWindow["document"],
       }),
     );
 
     expect(result.isAutomationArtifacts).toBe(true);
+    expect(result.isChromeDriver).toBe(true);
+    expect(result.automation.kind).toBe("browser-automation");
+    expect(result.automation.alternatives).toEqual(["selenium"]);
     expect(result.isLegitClient).toBe(false);
   });
 
@@ -450,6 +496,436 @@ describe("detectInstantClient", () => {
         }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("automation attribution and stealth checks", () => {
+  it("distinguishes leaked Playwright and Puppeteer artifacts", () => {
+    const playwrightBinding = createMockContext({ __playwright__binding__: {} });
+    const playwrightScripts = createMockContext({ __pwInitScripts: [] });
+    const playwrightCollision = createMockContext({
+      __pw_config: true,
+    } as Partial<ExtendedWindow>);
+    const puppeteerDirect = createMockContext({
+      __puppeteer_evaluation_script__: true,
+    });
+    const puppeteerCollision = createMockContext({
+      puppeteer_widget: true,
+    } as Partial<ExtendedWindow>);
+
+    expect(isPlaywright(playwrightBinding)).toBe(true);
+    expect(isPlaywright(playwrightScripts)).toBe(true);
+    expect(isPlaywright(playwrightCollision)).toBe(false);
+    expect(isPlaywright(createMockContext())).toBe(false);
+    expect(isPuppeteer(puppeteerDirect)).toBe(true);
+    expect(isPuppeteer(puppeteerCollision)).toBe(false);
+    expect(isAutomationArtifacts(playwrightCollision)).toBe(false);
+    expect(isAutomationArtifacts(puppeteerCollision)).toBe(false);
+    expect(isPuppeteer(createMockContext())).toBe(false);
+    expect(detectInstantClient(puppeteerDirect).automation.kind).toBe("puppeteer");
+  });
+
+  it("recognizes every ChromeDriver artifact location", () => {
+    expect(
+      isChromeDriver(createMockContext({ _WEBDRIVER_ELEM_CACHE: {} })),
+    ).toBe(true);
+    expect(
+      isChromeDriver(
+        createMockContext({
+          cdc_adoQpoasnfa76pfcZLmcfl_JSON: true,
+        } as Partial<ExtendedWindow>),
+      ),
+    ).toBe(true);
+    expect(
+      isChromeDriver(
+        createMockContext({
+          document: { $chrome_asyncScriptInfo: true } as ExtendedWindow["document"],
+        }),
+      ),
+    ).toBe(true);
+    expect(isChromeDriver(createMockContext())).toBe(false);
+  });
+
+  it("scores window-level ChromeDriver artifacts through the umbrella signal", () => {
+    for (const marker of [
+      "$cdc_adoQpoasnfa76pfcZLmcfl_",
+      "$chrome_asyncScriptInfo",
+    ] as const) {
+      const result = detectInstantClient(
+        createMockContext({ [marker]: true } as Partial<ExtendedWindow>),
+      );
+
+      expect(result.isChromeDriver).toBe(true);
+      expect(result.isAutomationArtifacts).toBe(true);
+      expect(result.suspicionScore).toBe(1);
+      expect(result.automation.kind).toBe("browser-automation");
+      expect(result.automation.alternatives).toEqual(["selenium"]);
+    }
+  });
+
+  it("detects User-Agent Client Hints version, mobile, and platform mismatches", () => {
+    const withData = (
+      userAgent: string,
+      data: NonNullable<ExtendedWindow["navigator"]["userAgentData"]>,
+    ) =>
+      createMockContext({
+        navigator: { userAgent, userAgentData: data } as ExtendedWindow["navigator"],
+      });
+    const chrome = createMockContext().navigator.userAgent;
+
+    expect(
+      isUserAgentDataMismatch(
+        withData(chrome, {
+          brands: [{ brand: "Chromium", version: "149" }],
+          mobile: false,
+          platform: "Windows",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isUserAgentDataMismatch(
+        withData(chrome, { brands: [], mobile: true, platform: "Windows" }),
+      ),
+    ).toBe(true);
+    expect(
+      isUserAgentDataMismatch(
+        withData(chrome, { brands: [], mobile: false, platform: "macOS" }),
+      ),
+    ).toBe(true);
+    expect(
+      isUserAgentDataMismatch(
+        withData(
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/121.0.0.0",
+          { brands: [], mobile: false, platform: "Windows" },
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isUserAgentDataMismatch(
+        withData("Mozilla/5.0 (Linux; Android 15) Chrome/121.0.0.0 Mobile", {
+          brands: [],
+          mobile: true,
+          platform: "Linux",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isUserAgentDataMismatch(
+        withData("Mozilla/5.0 (Linux; Android 15; Tablet) Chrome/121.0.0.0", {
+          brands: [{ brand: "Chromium", version: "121" }],
+          mobile: false,
+          platform: "Android",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isUserAgentDataMismatch(
+        withData(chrome, {
+          brands: [{ brand: "Chromium", version: "121" }],
+          mobile: false,
+          platform: "Windows",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isUserAgentDataMismatch(
+        withData(chrome, {
+          brands: [{ brand: "Chromium", version: "121.0.0.0" }],
+          mobile: false,
+          platform: "Windows",
+        }),
+      ),
+    ).toBe(false);
+
+    const classified = detectInstantClient(
+      withData(chrome, {
+        brands: [{ brand: "Chromium", version: "149" }],
+        mobile: false,
+        platform: "Windows",
+      }),
+    );
+    expect(classified.automation.kind).toBe("unknown");
+    expect(
+      classified.signals.find((signal) => signal.id === "isUserAgentDataMismatch"),
+    ).toMatchObject({ triggered: true });
+    expect(
+      isUserAgentDataMismatch(
+        withData(chrome, {
+          brands: [
+            { brand: "Chromium", version: "121" },
+            { brand: "Google Chrome", version: "149" },
+          ],
+          mobile: false,
+          platform: "Windows",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isUserAgentDataMismatch(
+        withData("Mozilla/5.0 (X11; Linux x86_64) Chrome/121.0.0.0", {
+          brands: [],
+          mobile: false,
+          platform: "Windows",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isUserAgentDataMismatch(
+        withData("Mozilla/5.0 (X11; CrOS x86_64 16000.0.0) Chrome/121.0.0.0", {
+          brands: [],
+          mobile: false,
+          platform: "Linux",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isUserAgentDataMismatch(
+        withData("custom-agent", { brands: [], platform: "Other" }),
+      ),
+    ).toBe(false);
+  });
+
+  it("detects language and plugin/MIME patch inconsistencies defensively", () => {
+    const navigatorContext = (navigator: Partial<ExtendedWindow["navigator"]>) =>
+      createMockContext({ navigator: navigator as ExtendedWindow["navigator"] });
+
+    expect(isLanguageInconsistent(navigatorContext({ language: "" }))).toBe(false);
+    expect(
+      isLanguageInconsistent(
+        navigatorContext({ language: "en-US", languages: undefined as never }),
+      ),
+    ).toBe(false);
+    expect(
+      isLanguageInconsistent(navigatorContext({ language: "en-US", languages: [] })),
+    ).toBe(true);
+    expect(
+      isLanguageInconsistent(
+        navigatorContext({ language: "en-US", languages: ["sv-SE"] }),
+      ),
+    ).toBe(true);
+    expect(isLanguageInconsistent(createMockContext())).toBe(false);
+
+    expect(
+      isPluginMimeTypeInconsistent(
+        navigatorContext({ plugins: undefined as never }),
+      ),
+    ).toBe(false);
+    expect(
+      isPluginMimeTypeInconsistent(
+        navigatorContext({ mimeTypes: undefined as never }),
+      ),
+    ).toBe(false);
+    expect(
+      isPluginMimeTypeInconsistent(
+        navigatorContext({ plugins: { length: 0 }, mimeTypes: { length: 2 } }),
+      ),
+    ).toBe(true);
+    expect(
+      isPluginMimeTypeInconsistent(
+        navigatorContext({ plugins: { length: 2 }, mimeTypes: { length: 0 } }),
+      ),
+    ).toBe(true);
+    expect(isPluginMimeTypeInconsistent(createMockContext())).toBe(false);
+  });
+
+  it("does not turn generic environment risk into framework attribution", async () => {
+    const stealth = createMockContext({
+      chrome: undefined,
+      outerWidth: 1280,
+      outerHeight: 800,
+      innerWidth: 1280,
+      innerHeight: 800,
+      screenX: 0,
+      screenY: 0,
+    });
+    stealth.document.createElement = vi.fn().mockReturnValue({
+      getContext: vi.fn().mockReturnValue(null),
+    });
+    const stealthLike = await detectInstantClientAsync(stealth);
+    const ordinaryWebDriver = await detectInstantClientAsync(
+      createMockContext({ navigator: { webdriver: true } }),
+    );
+
+    expect(stealthLike.automation.kind).toBe("unknown");
+    expect(stealthLike.automation.alternatives).toEqual([]);
+    expect(ordinaryWebDriver.automation.kind).toBe("browser-automation");
+  });
+
+  it("keeps generic risk evidence separate from framework alternatives", () => {
+    const result = detectInstantClient(
+      createMockContext({ screen: { width: 100, height: 100 } as Screen }),
+    );
+
+    expect(result.automation).toMatchObject({
+      isAutomated: false,
+      kind: "unknown",
+      alternatives: [],
+    });
+    expect(result.automation.evidence).toEqual([]);
+    expect(result.signals.find((signal) => signal.id === "isSuspiciousResolution"))
+      .toMatchObject({ triggered: true });
+  });
+
+  it.each([
+    ["curl/8.10.0", "curl"],
+    ["python-requests/2.32", "python"],
+    ["Go-http-client/2.0", "go"],
+    ["okhttp/4.12", "java"],
+  ] as const)("attributes %s requests to %s", (userAgent, kind) => {
+    const result = detectInstantClient(
+      createMockContext({
+        navigator: { userAgent } as ExtendedWindow["navigator"],
+      }),
+    );
+    expect(result.automation.kind).toBe(kind);
+    expect(result.automation.confidence).toBe("medium");
+  });
+
+  it("flags a scripting token hidden inside a Chromium User-Agent", () => {
+    const result = detectInstantClient(
+      createMockContext({
+        navigator: {
+          userAgent: `${createMockContext().navigator.userAgent} curl/8.10.0`,
+        } as ExtendedWindow["navigator"],
+      }),
+    );
+
+    expect(result.isChromium).toBe(true);
+    expect(result.isUserAgentValid).toBe(false);
+    expect(result.isLegitClient).toBe(false);
+    expect(result.automation.kind).toBe("curl");
+    expect(result.automation.alternatives).toEqual(["browser-automation"]);
+  });
+
+  it("preserves exact attribution when enforcement uses a lenient threshold", () => {
+    const result = detectInstantClient(
+      createMockContext({ __playwright__binding__: {} }),
+      { scoreThreshold: 1.1 },
+    );
+
+    expect(result.isLegitClient).toBe(true);
+    expect(result.automation).toMatchObject({
+      isAutomated: true,
+      kind: "playwright",
+      confidence: "medium",
+    });
+  });
+
+  it("keeps generic environment risk separate below a lenient threshold", () => {
+    const context = createMockContext({ chrome: undefined });
+    context.document.createElement = vi.fn().mockReturnValue({
+      getContext: vi.fn().mockReturnValue(null),
+    });
+    const result = detectInstantClient(context, { scoreThreshold: 0.8 });
+
+    expect(result.suspicionScore).toBeGreaterThanOrEqual(0.5);
+    expect(result.suspicionScore).toBeLessThan(0.8);
+    expect(result.isLegitClient).toBe(true);
+    expect(result.automation).toMatchObject({ isAutomated: false, kind: "unknown" });
+  });
+
+  it.each([
+    "MyHTTPXBrowser/1.0",
+    "curly/8.0",
+    "okhttpish/4.0",
+    "JavaScript/1.0",
+    "curl/8ball",
+    "okhttp/4evil",
+    "Go-http-client/2bot",
+  ])("does not block scripting-token near match %s", (userAgent) => {
+    const result = detectInstantClient(
+      createMockContext({
+        navigator: {
+          userAgent: `Mozilla/5.0 (X11; Linux x86_64) Chrome/121.0 ${userAgent}`,
+        } as ExtendedWindow["navigator"],
+      }),
+    );
+
+    expect(result.isUserAgentValid).toBe(true);
+    expect(result.automation.kind).toBe("unknown");
+  });
+
+  it("attributes legacy browser automation globals", () => {
+    expect(
+      detectInstantClient(createMockContext({ callPhantom: true })).automation.kind,
+    ).toBe("phantomjs");
+    expect(
+      detectInstantClient(createMockContext({ __nightmare: true })).automation.kind,
+    ).toBe("nightmare");
+  });
+
+  it("keeps generic browser and unknown automation classifications honest", () => {
+    const browserContext = createMockContext();
+    Object.defineProperty(Object.getPrototypeOf(browserContext.navigator), "webdriver", {
+      configurable: true,
+      value: true,
+    });
+    const browser = detectInstantClient(browserContext);
+    const unknown = detectInstantClient(
+      createMockContext({
+        navigator: { userAgent: "unknown-robot" } as ExtendedWindow["navigator"],
+      }),
+    );
+
+    expect(browser.automation.kind).toBe("browser-automation");
+    expect(browser.automation.alternatives).toContain("playwright");
+    expect(browser.automation.alternatives).not.toContain("patchright");
+    expect(unknown.automation.kind).toBe("unknown");
+  });
+
+  it("uses evidence-specific alternatives for headless and DOM automation", () => {
+    const headless = detectInstantClient(
+      createMockContext({
+        navigator: {
+          userAgent:
+            "Mozilla/5.0 (X11; Linux x86_64) HeadlessChrome/149.0.0.0 Safari/537.36",
+        } as ExtendedWindow["navigator"],
+      }),
+    );
+    const domAutomation = detectInstantClient(
+      createMockContext({ domAutomationController: {} }),
+    );
+
+    expect(headless.automation.alternatives).toEqual([
+      "patchright",
+      "playwright",
+      "puppeteer",
+      "selenium",
+    ]);
+    expect(domAutomation.automation.alternatives).toEqual([
+      "playwright",
+      "puppeteer",
+      "selenium",
+    ]);
+  });
+
+  it("attributes definitive automation markers outside Chromium", () => {
+    const firefox = createMockContext({
+      chrome: undefined,
+      navigator: {
+        userAgent:
+          "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+      } as ExtendedWindow["navigator"],
+    });
+    Object.defineProperty(Object.getPrototypeOf(firefox.navigator), "webdriver", {
+      configurable: true,
+      value: true,
+    });
+    const webdriver = detectInstantClient(firefox);
+    const dom = detectInstantClient(
+      createMockContext({
+        chrome: undefined,
+        domAutomation: {},
+        navigator: {
+          userAgent:
+            "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+        } as ExtendedWindow["navigator"],
+      }),
+    );
+
+    expect(webdriver.automation.kind).toBe("browser-automation");
+    expect(dom.automation.kind).toBe("browser-automation");
+    expect(webdriver.automation.alternatives).not.toContain("patchright");
   });
 });
 
@@ -608,5 +1084,42 @@ describe("detectInstantClientAsync", () => {
     await expect(checkShaderF16Support(noGpu)).resolves.toBe(false);
     await expect(checkShaderF16Support(noAdapter)).resolves.toBe(false);
     await expect(checkShaderF16Support(rejected)).resolves.toBe(false);
+  });
+});
+
+describe("isHuman", () => {
+  it("returns true for a normal modern browser context", () => {
+    const context = createMockContext();
+    expect(isHuman(context)).toBe(true);
+  });
+
+  it("returns false for a webdriver context", () => {
+    const context = createMockContext({
+      navigator: { webdriver: true } as ExtendedWindow["navigator"],
+    });
+    expect(isHuman(context)).toBe(false);
+  });
+
+  it("respects scoreThreshold option", () => {
+    const context = createMockContext({
+      navigator: { webdriver: true } as ExtendedWindow["navigator"],
+    });
+    // With high threshold it might still pass? but for definitive marker it should fail
+    expect(isHuman(context, { scoreThreshold: 0.1 })).toBe(false);
+  });
+});
+
+describe("isHumanAsync", () => {
+  it("returns a boolean", async () => {
+    const context = createMockContext();
+    const result = await isHumanAsync(context);
+    expect(typeof result).toBe("boolean");
+  });
+
+  it("returns false for webdriver even async", async () => {
+    const context = createMockContext({
+      navigator: { webdriver: true } as ExtendedWindow["navigator"],
+    });
+    await expect(isHumanAsync(context)).resolves.toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for improving `detect-bot-client`. The project is small enough that direct, well-tested changes are preferred over heavy process.
+Thanks for improving `bot-signal`. The project is small enough that direct, well-tested changes are preferred over heavy process.
 
 ## Development setup
 
@@ -15,7 +15,7 @@ Use Node 22 or newer. Patchright is used for real Chromium browser coverage and 
 ## Change guidelines
 
 - Keep browser-only code in the browser entry points so browser bundlers never include Node-only modules.
-- Keep server-only code under `src/server/` and covered by the `detect-bot-client/server` entry point.
+- Keep server-only code under `src/server/` and covered by the `bot-signal/server` entry point.
 - Prefer low false-positive detection signals. Use weighted scoring for ambiguous browser, behavioral, and server checks.
 - Add focused tests for new signals, scoring changes, exports, and data parsing behavior.
 - Do not hand-edit `data/*.csv`; update `scripts/update-ip-data.ts` instead.

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for AI agents and contributors working on **detect-bot-client** (npm). GitHub repo: [okasi/detect-bot-client](https://github.com/okasi/detect-bot-client).
+Guidance for AI agents and contributors working on the **bot-signal** package (npm name: `bot-signal`, GitHub: okasi/bot-signal). It exports `isHuman()` etc. as the simple entry points plus full detection APIs.
 
 ## Project overview
 
@@ -12,10 +12,14 @@ TypeScript npm library with three detection layers:
 | Behavioral (browser) | `createBehavioralClientDetector` | `src/behavioral/` |
 | Server (Node) | `detectServerClientAsync` | `src/server/` |
 
+`src/automation.ts` contains the shared best-effort attribution result types.
+Instant and server results expose `automation` (`kind`, confidence, evidence,
+and alternatives); stealth framework names are probabilistic, not definitive.
+
 Entry points: `src/index.ts` (full API), `src/browser.ts` (browser-only),
 `src/server.ts` (server-only). The package.json `exports` map routes the root
 import to the browser build under the `browser` condition so browser bundlers
-never see `node:fs`. Build output: `dist/` (tsup — ESM + CJS + IIFE
+never see `node:fs`. `src/version.ts` provides `VERSION`. Build output: `dist/` (tsup — ESM + CJS + IIFE
 `browser.global.js` for CDNs).
 
 ## Repository layout
@@ -25,6 +29,8 @@ src/
   index.ts                    # root entry (full API)
   browser.ts                  # browser entry (instant + behavioral)
   server.ts                   # server entry (server detection only)
+  automation.ts               # shared automation attribution types/helper
+  userAgent.ts                # shared scripting User-Agent token parser
   detectInstantClient.ts      # instant detection entry
   checks.ts                   # high-value browser checks
   webgpu.ts                   # shader-f16 + isChromiumBrowser
@@ -96,7 +102,7 @@ to `page.evaluate`.
 2. Add boolean field to `InstantClientResult` in `src/types.ts`
 3. Add a spec (weight + confidence) to `INSTANT_SIGNAL_SPECS` in
    `detectInstantClient.ts` — use `triggerWhenFalse` for positive-health flags.
-   Definitive markers weigh 1.0; false-positive-prone checks weigh 0.25–0.35 so
+   Definitive markers weigh 1.0; false-positive-prone checks weigh 0.25–0.45 so
    they only block in combination (score `≥ scoreThreshold`, default 0.5).
 4. Add test in `test/detectInstantClient.test.ts`
 5. Document flag + weight in `README.md` signals table
@@ -167,12 +173,12 @@ server 0.5.
 `package.json` `files`: `["dist", "data"]`  
 Exports: `.` (browser condition → `dist/browser.*`), `./browser`, `./server`,
 each with ESM + CJS + split `.d.ts`/`.d.cts`. CDN: `unpkg`/`jsdelivr` point at
-`dist/browser.global.js` (IIFE, global `DetectBotClient`). Keep `publint` and
+`dist/browser.global.js` (IIFE, global `BotSignal`). Keep `publint` and
 `@arethetypeswrong/cli` green when touching the exports map.
 
 GitHub Actions (`.github/workflows/publish.yml`) publishes via **npm Trusted Publishing** (OIDC).
 
-**First release:** publish as `detect-bot-client`. One-time local `npm publish --access public`, then Trusted publishing: `okasi` / `detect-bot-client` / `publish.yml`.
+**First release:** publish as `bot-signal`. One-time local `npm publish --access public`, then Trusted publishing: `okasi` / `bot-signal` / `publish.yml`.
 
 ## Pull request checklist
 

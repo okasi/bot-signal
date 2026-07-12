@@ -80,15 +80,18 @@ describe("patchright instant detection — real browser context", () => {
     await context.close();
   });
 
-  it("does not expose navigator.webdriver in patchright by default", async () => {
+  it("suppresses webdriver while reporting the browser's actual headless UA", async () => {
     const { context, page } = await openHarnessPage(browser, server.baseUrl);
 
-    const webdriver = await page.evaluate(() => navigator.webdriver);
+    const environment = await page.evaluate(() => ({
+      webdriver: navigator.webdriver,
+      isHeadlessUa: navigator.userAgent.includes("Headless"),
+    }));
     const result = await runInstantDetection(page);
 
-    expect(webdriver).toBeFalsy();
+    expect(environment.webdriver).toBeFalsy();
     expect(result.isWebDriver).toBe(false);
-    expect(result.isHeadless).toBe(false);
+    expect(result.isHeadless).toBe(environment.isHeadlessUa);
 
     await context.close();
   });

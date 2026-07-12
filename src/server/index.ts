@@ -1,4 +1,9 @@
-export { buildServerSignals } from "./analysis.js";
+export {
+  buildServerSignals,
+  isClientHintsMismatch,
+  isMissingBrowserHeaders,
+  isScriptingUserAgent,
+} from "./analysis.js";
 export { enrichServerContext } from "./enrich.js";
 export type { EnrichedServerContext } from "./enrich.js";
 export { lookupClientIpGeo } from "./geoip.js";

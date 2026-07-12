@@ -8,6 +8,8 @@ describe("public entry points", () => {
     expect(browserApi).toMatchObject({
       detectInstantClient: expect.any(Function),
       detectInstantClientAsync: expect.any(Function),
+      isHuman: expect.any(Function),
+      isHumanAsync: expect.any(Function),
       buildInstantSignals: expect.any(Function),
       aggregateInstantSuspicionScore: expect.any(Function),
       resolveInstantConfidence: expect.any(Function),
@@ -34,9 +36,17 @@ describe("public entry points", () => {
   it("exports both browser and server APIs from the root entry", () => {
     expect(rootApi).toMatchObject({
       detectInstantClient: expect.any(Function),
+      isHuman: expect.any(Function),
       createBehavioralClientDetector: expect.any(Function),
       detectServerClientAsync: expect.any(Function),
       getIpListChecker: expect.any(Function),
     });
+  });
+
+  it("exports VERSION from all entry points", () => {
+    expect(typeof rootApi.VERSION).toBe("string");
+    expect(typeof browserApi.VERSION).toBe("string");
+    expect(typeof serverApi.VERSION).toBe("string");
+    expect(rootApi.VERSION).toBe(browserApi.VERSION);
   });
 });

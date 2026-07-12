@@ -8,20 +8,18 @@ const SOFTWARE_RENDERER_PATTERNS = [
   /software renderer/i,
 ];
 
-const WINDOW_AUTOMATION_KEY_PATTERNS = [
-  /^cdc_[a-zA-Z0-9]+_/,
-  /^__playwright/,
-  /^__pw_/,
-  /^_WEBDRIVER_ELEM_CACHE$/,
+const PLAYWRIGHT_KEY_PATTERNS = [
+  /^__playwright(?:__binding__)?$/,
+  /^__pw(?:InitScripts|_manual)$/,
 ];
 
-const DOCUMENT_AUTOMATION_KEY_PATTERNS = [
-  /^cdc_[a-zA-Z0-9]+_/,
-  /^\$cdc_/,
+const PUPPETEER_KEY_PATTERNS = [/^__puppeteer_evaluation_script__$/];
+
+const CHROMEDRIVER_KEY_PATTERNS = [
+  /^cdc_[a-zA-Z0-9]{10,}_(?:Array|JSON|Object|Promise|Proxy|Symbol|Window)$/,
+  /^\$cdc_[a-zA-Z0-9]{10,}_$/,
   /^\$chrome_asyncScriptInfo$/,
-  /^__webdriver/,
-  /^__selenium/,
-  /^__driver/,
+  /^_WEBDRIVER_ELEM_CACHE$/,
 ];
 
 function hasMatchingKey(target: object, patterns: RegExp[]): boolean {
@@ -102,19 +100,119 @@ export function isEmptyPlugins(context: ExtendedWindow): boolean {
 
 /** Known ChromeDriver, Puppeteer, or Playwright artifacts on `window` / `document` */
 export function isAutomationArtifacts(context: ExtendedWindow): boolean {
+  if (isPlaywright(context) || isPuppeteer(context) || isChromeDriver(context)) {
+    return true;
+  }
+
+  return false;
+}
+
+/** Playwright bindings or init-script registries leaked into the page realm. */
+export function isPlaywright(context: ExtendedWindow): boolean {
+  return (
+    Boolean(
+      context.__playwright ||
+        context.__pw_manual ||
+        context.__playwright__binding__ ||
+        context.__pwInitScripts,
+    ) || hasMatchingKey(context, PLAYWRIGHT_KEY_PATTERNS)
+  );
+}
+
+/** Puppeteer evaluation helpers leaked into the page realm. */
+export function isPuppeteer(context: ExtendedWindow): boolean {
+  return (
+    Boolean(context.__puppeteer_evaluation_script__) ||
+    hasMatchingKey(context, PUPPETEER_KEY_PATTERNS)
+  );
+}
+
+/** ChromeDriver/Selenium `cdc_` and element-cache artifacts. */
+export function isChromeDriver(context: ExtendedWindow): boolean {
+  return (
+    Boolean(context._WEBDRIVER_ELEM_CACHE) ||
+    hasMatchingKey(context, CHROMEDRIVER_KEY_PATTERNS) ||
+    hasMatchingKey(context.document, CHROMEDRIVER_KEY_PATTERNS)
+  );
+}
+
+/** UA major version or mobile/platform claim conflicts with User-Agent Client Hints. */
+export function isUserAgentDataMismatch(context: ExtendedWindow): boolean {
+  const data = context.navigator.userAgentData;
+  if (!data) {
+    return false;
+  }
+
+  const userAgent = context.navigator.userAgent;
+  const chromeMajor = userAgent.match(/(?:Chrome|Chromium)\/(\d+)/)?.[1];
+  const brandMajors = data.brands
+    .filter((brand) => /^(?:Chromium|Google Chrome)$/i.test(brand.brand))
+    .map((brand) => brand.version.match(/^\d+/)?.[0])
+    .filter((version): version is string => version !== undefined);
+
   if (
-    context.__playwright ||
-    context.__pw_manual ||
-    context._WEBDRIVER_ELEM_CACHE
+    chromeMajor &&
+    brandMajors.length > 0 &&
+    brandMajors.some((version) => version !== chromeMajor)
   ) {
     return true;
   }
 
-  if (hasMatchingKey(context, WINDOW_AUTOMATION_KEY_PATTERNS)) {
+  const uaIsMobile = /Mobi/i.test(userAgent);
+  if (typeof data.mobile === "boolean" && data.mobile !== uaIsMobile) {
     return true;
   }
 
-  return hasMatchingKey(context.document, DOCUMENT_AUTOMATION_KEY_PATTERNS);
+  if (data.platform) {
+    if (/Android/i.test(userAgent) && !/Android/i.test(data.platform)) {
+      return true;
+    }
+    if (/CrOS/i.test(userAgent) && !/Chrome OS/i.test(data.platform)) {
+      return true;
+    }
+    if (
+      /Linux/i.test(userAgent) &&
+      !/Android|CrOS/i.test(userAgent) &&
+      !/Linux/i.test(data.platform)
+    ) {
+      return true;
+    }
+    if (/Windows/i.test(userAgent) && !/Windows/i.test(data.platform)) {
+      return true;
+    }
+    if (
+      /(Macintosh|Mac OS X)/i.test(userAgent) &&
+      !/macOS/i.test(data.platform)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/** `navigator.language` disagrees with the first entry in `navigator.languages`. */
+export function isLanguageInconsistent(context: ExtendedWindow): boolean {
+  const { language, languages } = context.navigator;
+  if (!language || !languages) {
+    return false;
+  }
+
+  return (
+    languages.length === 0 ||
+    languages[0]?.toLowerCase() !== language.toLowerCase()
+  );
+}
+
+/** Plugin and MIME-type arrays were patched independently and no longer agree. */
+export function isPluginMimeTypeInconsistent(context: ExtendedWindow): boolean {
+  if (!context.navigator.plugins || !context.navigator.mimeTypes) {
+    return false;
+  }
+
+  const pluginCount = context.navigator.plugins.length;
+  const mimeTypeCount = context.navigator.mimeTypes.length;
+  return (pluginCount === 0) !== (mimeTypeCount === 0);
 }
 
 /** `navigator.webdriver` was patched (own property) or deleted from the prototype */

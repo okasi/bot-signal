@@ -61,18 +61,24 @@ for (const button of document.querySelectorAll("[data-copy-target]")) {
 const CHECKS = [
   ["isWebDriver", "navigator.webdriver is set — the standard automation beacon", "bad"],
   ["isAutomationArtifacts", "ChromeDriver, Puppeteer, or Playwright leftovers on window/document", "bad"],
+  ["isPlaywright", "Attribution detail: Playwright binding or init-script artifact", "info"],
+  ["isPuppeteer", "Attribution detail: Puppeteer evaluation artifact", "info"],
+  ["isChromeDriver", "Attribution detail: ChromeDriver artifact", "info"],
   ["isSuspiciousWebDriverDescriptor", "webdriver property was patched or deleted by a stealth layer", "bad"],
   ["isHeadless", "HeadlessChrome user agent or webdriver flag", "bad"],
   ["isSelenium", "Selenium markers on document", "bad"],
   ["isPhantomJS", "PhantomJS globals on window", "bad"],
   ["isNightmare", "Nightmare.js marker present", "bad"],
   ["isDomAutomation", "Chrome DOM-automation controller globals", "bad"],
-  ["isMissingChromeObject", "Chromium claiming no chrome.runtime object", "bad"],
+  ["isMissingChromeObject", "Chromium without the browser-provided window.chrome object", "bad"],
   ["isEmptyPlugins", "Zero navigator.plugins on desktop Chromium", "bad"],
   ["isSoftwareRenderer", "SwiftShader / llvmpipe software GPU renderer", "bad"],
+  ["isUserAgentDataMismatch", "User-Agent conflicts with Client Hints", "bad"],
+  ["isLanguageInconsistent", "navigator.language conflicts with navigator.languages", "bad"],
+  ["isPluginMimeTypeInconsistent", "Plugin and MIME-type arrays disagree", "bad"],
   ["isSuspiciousResolution", "Screen smaller than any real device (136×170)", "bad"],
   ["isSuspiciousWindowDimensions", "No window chrome and parked exactly at the screen origin", "bad"],
-  ["isUserAgentValid", "User agent has the universal 'Mozilla/5.0 (' prefix", "good"],
+  ["isUserAgentValid", "User agent has the Mozilla prefix and no scripting-client token", "good"],
   ["isWebGLSupported", "A WebGL context can be created (headless Chromium 139+ has none)", "good"],
   ["isModern", "Chrome 121+ / Firefox 128+ / Safari 16.4+", "good"],
   ["isShaderF16Supported", "WebGPU shader-f16 feature (Chromium only, async run)", "shader"],
@@ -203,6 +209,12 @@ function scoreText(result) {
   return (result.suspicionScore ?? 0).toFixed(2);
 }
 
+function automationText(result) {
+  const assessment = result.automation;
+  if (!assessment?.isAutomated) return "";
+  return ` · likely ${assessment.kind} (${assessment.confidence} confidence)`;
+}
+
 function updateHero(result) {
   const { triggered, softCount, total } = countFlags(result);
   const card = $("hero-verdict");
@@ -253,7 +265,7 @@ function runInstant(detail = "") {
   applyInstant(
     result,
     detail || passDetail,
-    detail || `Score ${scoreText(result)} ≥ 0.50 threshold — see the flagged cards below`,
+    detail || `Score ${scoreText(result)} ≥ 0.50 threshold${automationText(result)} — see the flagged cards below`,
   );
 }
 
@@ -264,7 +276,11 @@ async function runAsync() {
     result.isShaderF16Supported === null
       ? "WebGPU check not applicable in this browser"
       : `WebGPU shader-f16: ${result.isShaderF16Supported ? "supported" : "missing"}`;
-  applyInstant(result, `Score ${scoreText(result)} · ${shader}`, `Score ${scoreText(result)} · ${shader}`);
+  applyInstant(
+    result,
+    `Score ${scoreText(result)} · ${shader}`,
+    `Score ${scoreText(result)} · ${shader}${automationText(result)}`,
+  );
 }
 
 $("run-instant").addEventListener("click", () => runInstant());
@@ -603,11 +619,19 @@ const SERVER_SIGNALS = [
     context: { clientIp: "203.0.113.66", isAbuseListedIp: true },
   },
   {
+    id: "scripting-user-agent",
+    weight: 0.75,
+    confidence: "medium",
+    desc: "User-Agent claims curl / Python / Go / Java",
+    context: { userAgent: "curl/8.5.0" },
+  },
+  {
     id: "known-suspicious-tls",
     weight: 0.55,
     confidence: "high",
-    desc: "JA3 matches curl / Python / Go / Java",
-    context: { tlsFingerprint: "b2114619bfb604579bbb31b673619900", userAgent: "curl/8.5.0" },
+    desc: "JA3/JA4 matches a caller-supplied suspicious value",
+    context: { tlsFingerprint: "custom-suspicious-fingerprint" },
+    options: { suspiciousTlsFingerprints: ["custom-suspicious-fingerprint"] },
   },
   {
     id: "timezone-mismatch",
@@ -617,12 +641,19 @@ const SERVER_SIGNALS = [
     context: { clientTimezone: "Europe/Berlin", ipTimezone: "America/New_York" },
   },
   {
-    id: "tls-user-agent-mismatch",
-    weight: 0.5,
+    id: "client-hints-mismatch",
+    weight: 0.65,
     confidence: "high",
-    desc: "TLS fingerprint contradicts the User-Agent",
-    context: { tlsFingerprint: "e7d705a3286e19ea42f587b344ee6865", userAgent: SERVER_CHROME_UA },
-    implies: ["known-suspicious-tls"],
+    desc: "Chromium User-Agent version conflicts with sec-ch-ua",
+    context: { userAgent: SERVER_CHROME_UA, secChUa: '\"Chromium\";v=\"149\"' },
+  },
+  {
+    id: "missing-browser-headers",
+    weight: 0.35,
+    confidence: "medium",
+    desc: "Browser UA lacks Fetch Metadata headers (opt-in)",
+    context: { userAgent: SERVER_CHROME_UA },
+    options: { requireBrowserHeaders: true },
   },
   {
     id: "datacenter-browser-mismatch",
@@ -657,7 +688,7 @@ const SERVER_SIGNALS = [
 
 const PRESETS = {
   clean: [],
-  "curl-aws": ["known-suspicious-tls"],
+  "curl-aws": ["scripting-user-agent"],
   "stealth-vpn": ["timezone-mismatch", "datacenter-browser-mismatch", "accept-language-geo-mismatch"],
   relay: ["icloud-private-relay"],
 };
@@ -675,7 +706,6 @@ const PRESET_CONTEXTS = {
     clientIp: "3.0.0.1",
     isDatacenterIp: true,
     userAgent: "curl/8.5.0",
-    tlsFingerprint: "b2114619bfb604579bbb31b673619900",
   },
   "stealth-vpn": {
     clientIp: "45.86.200.14",

@@ -59,7 +59,7 @@ describe("patchright instant detection — injected automation markers", () => {
     const { context, page } = await openHarnessPage(browser, server.baseUrl);
 
     await page.evaluate(() => {
-      (document as any).$cdc_test_marker = true;
+      (document as any).$cdc_adoQpoasnfa76pfcZLmcfl_ = true;
     });
 
     const result = await runInstantDetection(page);

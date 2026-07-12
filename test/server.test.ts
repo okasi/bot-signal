@@ -16,9 +16,12 @@ import {
   getUserAgentFamily,
   isAcceptLanguageGeoMismatch,
   isBrowserLikeUserAgent,
+  isClientHintsMismatch,
   isDatacenterBrowserMismatch,
   isKnownSuspiciousTlsFingerprint,
   isMissingTlsFingerprint,
+  isMissingBrowserHeaders,
+  isScriptingUserAgent,
   isTimezoneMismatch,
   isTlsUserAgentMismatch,
   isValidJa3Hash,
@@ -34,7 +37,7 @@ const CHROME_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36";
 
 function createFixtureDataDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "detect-bot-client-data-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bot-signal-data-"));
   fs.writeFileSync(
     path.join(dir, "abuse_ip_db_30d_ips.csv"),
     "198.51.100.10\n203.0.113.20      # TH  AS23969   TOT Public Company Limited\n",
@@ -276,6 +279,11 @@ describe("parseIp", () => {
     expect(parseIp("2001::db8::1")).toBeNull();
     expect(parseIp("::ffff:999.1.1.1")).toBeNull();
     expect(parseIp("2001:db8::gggg")).toBeNull();
+    // Additional adversarial cases
+    expect(parseIp("::ffff:0.0.0.0")).toEqual({ kind: "ipv4", value: 0, canonical: "0.0.0.0" });
+    expect(parseIp("  192.168.1.1  ")).toEqual({ kind: "ipv4", value: (192 << 24 | 168 << 16 | 1 << 8 | 1) >>> 0, canonical: "192.168.1.1" });
+    expect(parseIp("::1%eth0")).toEqual({ kind: "ipv6", value: 1n, canonical: "0:0:0:0:0:0:0:1" });
+    expect(parseIp("2001:db8::1:2:3:4:5:6:7")).toBeNull(); // too many groups
   });
 
   it("normalizes IPv4-mapped IPv6 to IPv4", () => {
@@ -374,7 +382,232 @@ describe("detectServerClient sync", () => {
     expect(clean.suspicionScore).toBe(0);
     expect(clean.confidence).toBe("low");
     expect(clean.isLegitClient).toBe(true);
+    expect(clean.automation).toMatchObject({
+      isAutomated: false,
+      kind: "unknown",
+      alternatives: [],
+    });
     expect(strict.isLegitClient).toBe(false);
+  });
+
+  it.each([
+    ["curl/8.10.0", "curl"],
+    ["python-requests/2.32", "python"],
+    ["Go-http-client/2.0", "go"],
+    ["okhttp/4.12", "java"],
+  ] as const)("blocks and attributes scripting UA %s", (userAgent, kind) => {
+    const result = detectServerClient({ userAgent });
+
+    expect(result.isLegitClient).toBe(false);
+    expect(result.automation.kind).toBe(kind);
+    expect(result.automation.confidence).toBe("medium");
+    expect(
+      result.signals.find((signal) => signal.id === "scripting-user-agent")
+        ?.triggered,
+    ).toBe(true);
+  });
+
+  it("preserves exact attribution below a lenient enforcement threshold", () => {
+    const result = detectServerClient(
+      { userAgent: "curl/8.10.0" },
+      { scoreThreshold: 0.8 },
+    );
+
+    expect(result.suspicionScore).toBe(0.75);
+    expect(result.isLegitClient).toBe(true);
+    expect(result.automation).toMatchObject({
+      isAutomated: true,
+      kind: "curl",
+      confidence: "medium",
+    });
+  });
+
+  it("keeps custom TLS risk separate below a lenient enforcement threshold", () => {
+    const result = detectServerClient(
+      { tlsFingerprint: "custom-prefix-extra" },
+      {
+        suspiciousTlsFingerprints: ["custom-prefix"],
+        scoreThreshold: 0.8,
+      },
+    );
+
+    expect(result.isLegitClient).toBe(true);
+    expect(result.automation).toMatchObject({
+      isAutomated: false,
+      kind: "unknown",
+    });
+    expect(result.automation.evidence).toEqual([]);
+  });
+
+  it("does not infer a scripting family from TLS with a browser UA", () => {
+    const result = detectServerClient({
+      userAgent: CHROME_UA,
+      tlsFingerprint: "e7d705a3286e19ea42f587b344ee6865",
+    });
+
+    expect(result.automation.kind).toBe("unknown");
+  });
+
+  it("uses the scripting UA as identity and TLS only as corroboration", () => {
+    const curlTls = "b2114619bfb604579bbb31b673619900";
+    const conflict = detectServerClient({
+      userAgent: "python-requests/2.32",
+      tlsFingerprint: "e7d705a3286e19ea42f587b344ee6865",
+    });
+
+    expect(conflict.automation).toMatchObject({
+      kind: "python",
+      confidence: "medium",
+      alternatives: [],
+    });
+    expect(conflict.automation.evidence).toEqual(["User-Agent claims python"]);
+    KNOWN_SUSPICIOUS_TLS_FINGERPRINTS.push({
+      id: "test-curl",
+      label: "Test-only curl fixture",
+      hash: curlTls,
+      families: ["curl", "scripting"],
+      confidence: "medium",
+    });
+    try {
+      const agreement = detectServerClient({
+        userAgent: "curl/8.10.0",
+        tlsFingerprint: curlTls,
+      });
+      expect(agreement.automation.kind).toBe("curl");
+      expect(agreement.automation.alternatives).toEqual([]);
+      expect(agreement.automation.evidence).toContain(
+        "TLS fingerprint is compatible with curl",
+      );
+    } finally {
+      KNOWN_SUSPICIOUS_TLS_FINGERPRINTS.pop();
+    }
+  });
+
+  it("keeps custom suspicious TLS as risk rather than identity", () => {
+    const result = detectServerClient(
+      { tlsFingerprint: "custom-prefix-extra" },
+      { suspiciousTlsFingerprints: ["custom-prefix"] },
+    );
+
+    expect(result.automation.kind).toBe("unknown");
+    expect(result.automation.evidence).toEqual([]);
+
+    const browser = detectServerClient(
+      {
+        userAgent: CHROME_UA,
+        tlsFingerprint: "custom-prefix-extra",
+      },
+      { suspiciousTlsFingerprints: ["custom-prefix"] },
+    );
+    expect(
+      browser.signals.find((signal) => signal.id === "known-suspicious-tls"),
+    ).toMatchObject({ triggered: true });
+    expect(
+      browser.signals.find((signal) => signal.id === "tls-user-agent-mismatch"),
+    ).toMatchObject({ triggered: false });
+    expect(browser.suspicionScore).toBeCloseTo(0.55);
+  });
+
+  it("does not turn a Client Hints mismatch into framework attribution", () => {
+    const result = detectServerClient({
+      userAgent: CHROME_UA,
+      secChUa: '"Chromium";v="149", "Google Chrome";v="149"',
+    });
+
+    expect(result.isLegitClient).toBe(false);
+    expect(result.automation.kind).toBe("unknown");
+    expect(result.automation.alternatives).toEqual([]);
+    expect(result.context.secChUa).toContain("Chromium");
+  });
+
+  it("uses unknown when no family fingerprint is available", () => {
+    const result = detectServerClient({ isAbuseListedIp: true });
+
+    expect(result.automation.kind).toBe("unknown");
+    expect(result.automation.evidence).toHaveLength(0);
+  });
+
+  it("does not turn IP reputation into browser-framework attribution", () => {
+    const result = detectServerClient({
+      userAgent: CHROME_UA,
+      isAbuseListedIp: true,
+    });
+
+    expect(result.isLegitClient).toBe(false);
+    expect(result.automation).toMatchObject({
+      isAutomated: false,
+      kind: "unknown",
+      alternatives: [],
+    });
+  });
+});
+
+describe("request fingerprint helpers", () => {
+  it("recognizes scripting and ordinary browser user agents", () => {
+    expect(isScriptingUserAgent("curl/8.10.0")).toBe(true);
+    expect(isScriptingUserAgent(CHROME_UA)).toBe(false);
+    expect(isScriptingUserAgent(undefined)).toBe(false);
+    expect(isScriptingUserAgent("MyHTTPXBrowser/1.0")).toBe(false);
+    expect(isScriptingUserAgent("okhttpish/4.0")).toBe(false);
+    expect(isScriptingUserAgent("JavaScript/1.0")).toBe(false);
+  });
+
+  it("detects conflicting Chromium client hints only when comparable", () => {
+    expect(isClientHintsMismatch(undefined, '"Chromium";v="149"')).toBe(false);
+    expect(isClientHintsMismatch(CHROME_UA, undefined)).toBe(false);
+    expect(
+      isClientHintsMismatch(
+        "Mozilla/5.0 Firefox/128.0",
+        '"Chromium";v="149"',
+      ),
+    ).toBe(false);
+    expect(
+      isClientHintsMismatch(CHROME_UA, '"Not A Brand";v="99"'),
+    ).toBe(false);
+    expect(
+      isClientHintsMismatch(CHROME_UA, '"Chromium";v="121"'),
+    ).toBe(false);
+    expect(
+      isClientHintsMismatch(CHROME_UA, '"Chromium";v="149"'),
+    ).toBe(true);
+    expect(
+      isClientHintsMismatch(
+        CHROME_UA,
+        '"Chromium";v="121", "Google Chrome";v="149"',
+      ),
+    ).toBe(true);
+  });
+
+  it("optionally requires all Fetch Metadata headers for browser UAs", () => {
+    const complete = {
+      userAgent: CHROME_UA,
+      acceptLanguage: "en-US,en;q=0.9",
+      tlsFingerprintType: "ja4" as const,
+      secFetchSite: "none",
+      secFetchMode: "navigate",
+      secFetchDest: "document",
+    };
+
+    expect(isMissingBrowserHeaders(complete, false)).toBe(false);
+    expect(isMissingBrowserHeaders({ userAgent: "curl/8.0" }, true)).toBe(false);
+    expect(isMissingBrowserHeaders({ userAgent: CHROME_UA }, true)).toBe(true);
+    expect(isMissingBrowserHeaders(complete, true)).toBe(false);
+    expect(detectServerClient(complete).context).toMatchObject({
+      secFetchSite: "none",
+      secFetchMode: "navigate",
+      secFetchDest: "document",
+      acceptLanguage: "en-US,en;q=0.9",
+      tlsFingerprintType: "ja4",
+    });
+    expect(
+      isMissingBrowserHeaders({ ...complete, secFetchSite: undefined }, true),
+    ).toBe(true);
+    expect(
+      isMissingBrowserHeaders({ ...complete, secFetchMode: undefined }, true),
+    ).toBe(true);
+    expect(
+      isMissingBrowserHeaders({ ...complete, secFetchDest: undefined }, true),
+    ).toBe(true);
   });
 });
 
@@ -434,12 +667,11 @@ describe("server scoring helpers", () => {
 });
 
 describe("TLS helpers", () => {
-  const CURL_HASH = "b2114619bfb604579bbb31b673619900";
-  const GO_HASH = "71a02c3315cd8182f8a3e8b2f8b3f6de";
+  const TOR_HASH = "e7d705a3286e19ea42f587b344ee6865";
 
   it("normalizes and classifies user agents", () => {
-    expect(normalizeTlsFingerprint(` ${CURL_HASH.toUpperCase()} `)).toBe(
-      CURL_HASH,
+    expect(normalizeTlsFingerprint(` ${TOR_HASH.toUpperCase()} `)).toBe(
+      TOR_HASH,
     );
     expect(getUserAgentFamily(undefined)).toBe("unknown");
     expect(getUserAgentFamily("curl/8.0.1")).toBe("curl");
@@ -453,19 +685,40 @@ describe("TLS helpers", () => {
     expect(getUserAgentFamily("Version/17.0 Safari/605.1.15")).toBe("safari");
     expect(getUserAgentFamily("Go-http-client/2.0")).toBe("go");
     expect(getUserAgentFamily("okhttp/4.12.0")).toBe("java");
+    expect(getUserAgentFamily("Java-http-client/17.0.13")).toBe("java");
+    expect(getUserAgentFamily("Java/1.8.0_202")).toBe("java");
+    expect(getUserAgentFamily("Java-http-client/17evil")).toBe("unknown");
     expect(getUserAgentFamily("unknown-client")).toBe("unknown");
     expect(isBrowserLikeUserAgent(CHROME_UA)).toBe(true);
     expect(isBrowserLikeUserAgent("curl/8.0.1")).toBe(false);
   });
 
   it("finds known, custom, and absent TLS fingerprint entries", () => {
-    expect(findTlsFingerprintEntry(CURL_HASH)?.id).toBe("curl");
+    KNOWN_SUSPICIOUS_TLS_FINGERPRINTS.push({
+      id: "test-known-hash",
+      label: "Test-only known hash",
+      hash: TOR_HASH,
+      families: ["scripting"],
+      confidence: "medium",
+    });
+    try {
+      expect(findTlsFingerprintEntry(TOR_HASH)?.id).toBe("test-known-hash");
+      expect(isKnownSuspiciousTlsFingerprint(TOR_HASH)).toBe(true);
+      expect(findTlsFingerprintEntry(TOR_HASH, [], "ja4")).toBeUndefined();
+      expect(isKnownSuspiciousTlsFingerprint(TOR_HASH, [], "ja4")).toBe(false);
+    } finally {
+      KNOWN_SUSPICIOUS_TLS_FINGERPRINTS.pop();
+    }
     expect(findTlsFingerprintEntry("custom-hash-extra", ["custom-hash"])?.id).toBe(
       "custom",
     );
+    expect(findTlsFingerprintEntry("anything", [""])).toBeUndefined();
+    expect(findTlsFingerprintEntry("anything", ["   "])).toBeUndefined();
     expect(findTlsFingerprintEntry("missing")).toBeUndefined();
     expect(isKnownSuspiciousTlsFingerprint(undefined)).toBe(false);
-    expect(isKnownSuspiciousTlsFingerprint(CURL_HASH)).toBe(true);
+    expect(
+      findTlsFingerprintEntry("custom-ja4-extra", ["custom-ja4"], "ja4")?.id,
+    ).toBe("custom");
   });
 
   it("matches known TLS fingerprint prefixes", () => {
@@ -487,13 +740,27 @@ describe("TLS helpers", () => {
   });
 
   it("detects and ignores TLS/user-agent mismatches appropriately", () => {
-    expect(isTlsUserAgentMismatch(undefined, CHROME_UA)).toBe(false);
-    expect(isTlsUserAgentMismatch(CURL_HASH, undefined)).toBe(false);
-    expect(isTlsUserAgentMismatch("missing", CHROME_UA)).toBe(false);
-    expect(isTlsUserAgentMismatch(CURL_HASH, "unknown-client")).toBe(false);
-    expect(isTlsUserAgentMismatch(CURL_HASH, CHROME_UA)).toBe(true);
-    expect(isTlsUserAgentMismatch(CURL_HASH, "curl/8.0.1")).toBe(false);
-    expect(isTlsUserAgentMismatch(GO_HASH, "Go-http-client/2.0")).toBe(false);
+    KNOWN_SUSPICIOUS_TLS_FINGERPRINTS.push({
+      id: "test-scripting",
+      label: "Test-only scripting fingerprint",
+      hash: TOR_HASH,
+      families: ["scripting"],
+      confidence: "medium",
+    });
+    try {
+      expect(isTlsUserAgentMismatch(undefined, CHROME_UA)).toBe(false);
+      expect(isTlsUserAgentMismatch(TOR_HASH, undefined)).toBe(false);
+      expect(isTlsUserAgentMismatch("missing", CHROME_UA)).toBe(false);
+      expect(isTlsUserAgentMismatch(TOR_HASH, "unknown-client")).toBe(false);
+      expect(isTlsUserAgentMismatch(TOR_HASH, CHROME_UA)).toBe(true);
+      expect(isTlsUserAgentMismatch(TOR_HASH, CHROME_UA, [], "ja4")).toBe(false);
+      expect(isTlsUserAgentMismatch(TOR_HASH, "curl/8.0.1")).toBe(false);
+    } finally {
+      KNOWN_SUSPICIOUS_TLS_FINGERPRINTS.pop();
+    }
+    expect(
+      isTlsUserAgentMismatch("custom-value", CHROME_UA, ["custom-value"]),
+    ).toBe(false);
   });
 
   it("detects missing TLS fingerprints only when required for browser UAs", () => {
@@ -504,8 +771,8 @@ describe("TLS helpers", () => {
   });
 
   it("validates JA3 hash format", () => {
-    expect(isValidJa3Hash(CURL_HASH)).toBe(true);
-    expect(isValidJa3Hash(` ${CURL_HASH.toUpperCase()} `)).toBe(true);
+    expect(isValidJa3Hash(TOR_HASH)).toBe(true);
+    expect(isValidJa3Hash(` ${TOR_HASH.toUpperCase()} `)).toBe(true);
     expect(isValidJa3Hash("3b5074b1b5d032e5620f6fbd716347afd")).toBe(false); // 33 chars
     expect(isValidJa3Hash("b2114619")).toBe(false); // too short
     expect(isValidJa3Hash("771,4865-4866-4867")).toBe(false); // raw JA3 string
@@ -513,6 +780,7 @@ describe("TLS helpers", () => {
   });
 
   it("ships only well-formed hash/prefix fingerprint entries", () => {
+    expect(KNOWN_SUSPICIOUS_TLS_FINGERPRINTS).toEqual([]);
     for (const entry of KNOWN_SUSPICIOUS_TLS_FINGERPRINTS) {
       const hasValidHash = entry.hash !== undefined && isValidJa3Hash(entry.hash);
       const hasPrefix = typeof entry.prefix === "string" && entry.prefix.length > 0;

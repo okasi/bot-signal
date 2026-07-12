@@ -1,3 +1,5 @@
+import type { AutomationAssessment } from "./automation.js";
+
 export interface ExtendedDocument extends Document {
   __selenium_unwrapped?: unknown;
   __webdriver_evaluate?: unknown;
@@ -6,6 +8,11 @@ export interface ExtendedDocument extends Document {
 
 export interface ExtendedNavigator extends Omit<Navigator, "gpu"> {
   gpu?: GPU;
+  userAgentData?: {
+    brands: Array<{ brand: string; version: string }>;
+    mobile?: boolean;
+    platform?: string;
+  };
 }
 
 export interface ExtendedWindow extends Omit<Window, "document" | "navigator"> {
@@ -14,6 +21,9 @@ export interface ExtendedWindow extends Omit<Window, "document" | "navigator"> {
   __nightmare?: unknown;
   __playwright?: unknown;
   __pw_manual?: unknown;
+  __playwright__binding__?: unknown;
+  __pwInitScripts?: unknown;
+  __puppeteer_evaluation_script__?: unknown;
   _WEBDRIVER_ELEM_CACHE?: unknown;
   chrome?: { runtime?: unknown };
   domAutomation?: unknown;
@@ -40,7 +50,7 @@ export interface InstantDetectorOptions {
   /**
    * Suspicion score at/above which `isLegitClient` becomes false.
    * Defaults to 0.5. Definitive automation markers weigh 0.9–1.0 (blocking on
-   * their own); ambiguous, false-positive-prone checks weigh 0.25–0.35 so they
+   * their own); ambiguous, false-positive-prone checks weigh 0.25–0.45 so they
    * only block in combination.
    */
   scoreThreshold?: number;
@@ -62,7 +72,13 @@ export interface InstantClientResult {
   isSuspiciousWindowDimensions: boolean;
   isEmptyPlugins: boolean;
   isAutomationArtifacts: boolean;
+  isPlaywright: boolean;
+  isPuppeteer: boolean;
+  isChromeDriver: boolean;
   isSuspiciousWebDriverDescriptor: boolean;
+  isUserAgentDataMismatch: boolean;
+  isLanguageInconsistent: boolean;
+  isPluginMimeTypeInconsistent: boolean;
   isChromium: boolean;
   /**
    * 0 (human) to 1 (definitely automated), aggregated as `1 - Π(1 - weightᵢ)`
@@ -73,6 +89,8 @@ export interface InstantClientResult {
   /** Per-check breakdown with weights, for explainability */
   signals: InstantSignal[];
   isLegitClient: boolean;
+  /** Best-effort family attribution with evidence and plausible alternatives. */
+  automation: AutomationAssessment;
 }
 
 export interface InstantClientAsyncResult extends InstantClientResult {

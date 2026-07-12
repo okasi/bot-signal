@@ -3,12 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>detect-bot-client — is your browser a bot?</title>
+    <title>bot-signal — bot signal detection</title>
     <meta
       name="description"
-      content="Live demo of detect-bot-client: instant automation checks, behavioral scoring with a live mouse trail, and an interactive server-signal simulator."
+      content="Live demo of bot-signal: instant automation checks, behavioral scoring with a live mouse trail, and an interactive server-signal simulator."
     />
-    <meta property="og:title" content="detect-bot-client — is your browser a bot?" />
+    <meta property="og:title" content="bot-signal — bot signal detection" />
     <meta
       property="og:description"
       content="Run instant automation checks and live behavioral scoring against your own browser."
@@ -28,7 +28,7 @@
 
     <header class="topbar">
       <div class="shell topbar__inner">
-        <a class="brand" href="#top" aria-label="detect-bot-client home">
+        <a class="brand" href="#top" aria-label="bot-signal home">
           <svg class="brand__mark" viewBox="0 0 24 24" aria-hidden="true">
             <path
               d="M12 2.5 4 5.8v5.4c0 4.9 3.4 8.6 8 10.3 4.6-1.7 8-5.4 8-10.3V5.8L12 2.5Z"
@@ -37,7 +37,7 @@
             <circle cx="12" cy="11.2" r="3.4" fill="none" stroke="currentColor" stroke-width="1.6" />
             <path d="M12 11.2 14.6 8.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
           </svg>
-          <span class="brand__name">detect-bot-client</span>
+          <span class="brand__name">bot-signal</span>
         </a>
         <nav class="topbar__nav" aria-label="Sections">
           <a href="#instant">Instant</a>
@@ -55,8 +55,8 @@
               <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
             </svg>
           </button>
-          <a class="ghost-btn" href="https://github.com/okasi/detect-bot-client">GitHub</a>
-          <a class="ghost-btn ghost-btn--accent" href="https://www.npmjs.com/package/detect-bot-client">npm</a>
+          <a class="ghost-btn" href="https://github.com/okasi/bot-signal">GitHub</a>
+          <a class="ghost-btn ghost-btn--accent" href="https://www.npmjs.com/package/bot-signal">npm</a>
         </div>
       </div>
     </header>
@@ -69,12 +69,12 @@
             <p class="eyebrow">Live demo — everything runs in your browser</p>
             <h1 class="hero__title">Is your browser<br /><span id="hero-highlight" class="hero__highlight">being scanned…</span></h1>
             <p class="hero__lede">
-              <strong>detect-bot-client</strong> spots headless browsers, automation frameworks, and
+              <strong>bot-signal</strong> (npm package `bot-signal`) spots headless browsers, automation frameworks, and
               scripted interaction — in the browser and on the server. This page runs the real
               library against <em>you</em>.
             </p>
             <div class="install" role="group" aria-label="Install command">
-              <code class="install__cmd" id="install-cmd">npm install detect-bot-client</code>
+              <code class="install__cmd" id="install-cmd">npm install bot-signal</code>
               <button class="install__copy" id="copy-install" type="button" aria-label="Copy install command">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M5 15V6a2 2 0 0 1 2-2h9" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
                 <span class="visually-hidden">Copy</span>
@@ -318,7 +318,7 @@
                 <h3>Browser — block on load</h3>
                 <button class="copy-mini" data-copy-target="snippet-browser" type="button">Copy</button>
               </div>
-              <pre><code id="snippet-browser"><span class="tok-kw">import</span> { detectInstantClient } <span class="tok-kw">from</span> <span class="tok-str">"detect-bot-client"</span>;
+              <pre><code id="snippet-browser"><span class="tok-kw">import</span> { isHuman } <span class="tok-kw">from</span> <span class="tok-str">"bot-signal"</span>;
 
 <span class="tok-kw">const</span> result = <span class="tok-fn">detectInstantClient</span>(window);
 
@@ -332,7 +332,7 @@
                 <h3>Behavioral — observe &amp; score</h3>
                 <button class="copy-mini" data-copy-target="snippet-behavioral" type="button">Copy</button>
               </div>
-              <pre><code id="snippet-behavioral"><span class="tok-kw">import</span> { createBehavioralClientDetector } <span class="tok-kw">from</span> <span class="tok-str">"detect-bot-client"</span>;
+              <pre><code id="snippet-behavioral"><span class="tok-kw">import</span> { createBehavioralClientDetector } <span class="tok-kw">from</span> <span class="tok-str">"bot-signal"</span>;
 
 <span class="tok-kw">const</span> result = <span class="tok-kw">await</span> <span class="tok-fn">createBehavioralClientDetector</span>({ context: window })
   .<span class="tok-fn">observe</span>(<span class="tok-num">10_000</span>);
@@ -345,7 +345,7 @@
                 <h3>Server — score a request</h3>
                 <button class="copy-mini" data-copy-target="snippet-server" type="button">Copy</button>
               </div>
-              <pre><code id="snippet-server"><span class="tok-kw">import</span> { detectServerClientAsync } <span class="tok-kw">from</span> <span class="tok-str">"detect-bot-client/server"</span>;
+              <pre><code id="snippet-server"><span class="tok-kw">import</span> { detectServerClientAsync } <span class="tok-kw">from</span> <span class="tok-str">"bot-signal/server"</span>;
 
 <span class="tok-kw">const</span> result = <span class="tok-kw">await</span> <span class="tok-fn">detectServerClientAsync</span>({
   clientIp: req.ip,
@@ -364,9 +364,9 @@
     <footer class="footer">
       <div class="shell footer__inner">
         <p>
-          <a href="https://github.com/okasi/detect-bot-client">GitHub</a> ·
-          <a href="https://www.npmjs.com/package/detect-bot-client">npm</a> ·
-          <a href="https://github.com/okasi/detect-bot-client/blob/main/LICENSE">MIT</a>
+          <a href="https://github.com/okasi/bot-signal">GitHub</a> ·
+          <a href="https://www.npmjs.com/package/bot-signal">npm</a> ·
+          <a href="https://github.com/okasi/bot-signal/blob/main/LICENSE">MIT</a>
         </p>
         <p class="footer__ua" id="footer-ua"></p>
       </div>

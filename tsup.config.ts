@@ -14,7 +14,7 @@ export default defineConfig([
     // Script-tag / CDN build of the browser API (unpkg, jsdelivr) — emits dist/browser.global.js
     entry: { browser: "src/browser.ts" },
     format: ["iife"],
-    globalName: "DetectBotClient",
+    globalName: "BotSignal",
     minify: true,
     sourcemap: true,
     treeshake: true,

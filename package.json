@@ -1,16 +1,16 @@
 {
-  "name": "detect-bot-client",
+  "name": "bot-signal",
   "version": "2.0.0",
-  "description": "Detect bots, headless browsers, and automation — instant browser checks, behavioral scoring, and server-side IP/TLS/timezone validation with bundled blocklists",
+  "description": "bot-signal: multi-layer bot/automation detection. Simple isHuman() API plus instant, behavioral, and server signals (IP, TLS, timezone).",
   "license": "MIT",
   "author": "okasi",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/okasi/detect-bot-client.git"
+    "url": "git+https://github.com/okasi/bot-signal.git"
   },
-  "homepage": "https://okasi.github.io/detect-bot-client/",
+  "homepage": "https://okasi.github.io/bot-signal/",
   "bugs": {
-    "url": "https://github.com/okasi/detect-bot-client/issues"
+    "url": "https://github.com/okasi/bot-signal/issues"
   },
   "type": "module",
   "main": "./dist/index.cjs",
@@ -39,6 +39,16 @@
         "require": {
           "types": "./dist/browser.d.cts",
           "default": "./dist/browser.cjs"
+        }
+      },
+      "node": {
+        "import": {
+          "types": "./dist/index.d.ts",
+          "default": "./dist/index.js"
+        },
+        "require": {
+          "types": "./dist/index.d.cts",
+          "default": "./dist/index.cjs"
         }
       },
       "import": {
@@ -93,8 +103,9 @@
   },
   "keywords": [
     "bot-detection",
-    "detect-bot-client",
+    "bot-signal",
     "headless",
+    "bot signal",
     "headless-chrome",
     "selenium",
     "webdriver",

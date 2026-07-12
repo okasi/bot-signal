@@ -1,3 +1,4 @@
+import { createAutomationAssessment } from "../automation.js";
 import { enrichServerContext } from "./enrich.js";
 import { buildServerSignals } from "./analysis.js";
 import type {
@@ -8,11 +9,13 @@ import type {
   ServerSignal,
 } from "./types.js";
 import type { EnrichedServerContext } from "./enrich.js";
+import { findTlsFingerprintEntry, getUserAgentFamily } from "./tls.js";
 
 /**
  * Combines triggered signal weights into one score:
  * `1 - Π(1 - weightᵢ)` — independent-probability union, so extra signals
  * always raise the score but never past 1.
+ * @internal
  */
 export function aggregateServerSuspicionScore(signals: ServerSignal[]): number {
   const triggered = signals.filter((signal) => signal.triggered);
@@ -30,7 +33,10 @@ export function aggregateServerSuspicionScore(signals: ServerSignal[]): number {
   return 1 - score;
 }
 
-/** Confidence in the verdict based on high-confidence signal hits and score. */
+/**
+ * Confidence in the verdict based on high-confidence signal hits and score.
+ * @internal
+ */
 export function resolveServerConfidence(
   signals: ServerSignal[],
   suspicionScore: number,
@@ -58,7 +64,13 @@ function buildResultContext(
     ipTimezone: context.ipTimezone,
     clientTimezone: context.clientTimezone,
     tlsFingerprint: context.tlsFingerprint,
+    tlsFingerprintType: context.tlsFingerprintType,
     userAgent: context.userAgent,
+    acceptLanguage: context.acceptLanguage,
+    secChUa: context.secChUa,
+    secFetchSite: context.secFetchSite,
+    secFetchMode: context.secFetchMode,
+    secFetchDest: context.secFetchDest,
     ipCountry: context.ipCountry,
     isDatacenterIp: context.isDatacenterIp,
     isAbuseListedIp: context.isAbuseListedIp,
@@ -66,6 +78,34 @@ function buildResultContext(
     datacenterProvider: context.datacenterProvider,
     icloudRelayCountry: context.icloudRelayCountry,
   };
+}
+
+function classifyServerAutomation(
+  context: ServerClientContext,
+  suspiciousTlsFingerprints: string[],
+) {
+  const uaFamily = getUserAgentFamily(context.userAgent);
+  const tlsEntry = context.tlsFingerprint
+    ? findTlsFingerprintEntry(
+        context.tlsFingerprint,
+        suspiciousTlsFingerprints,
+        context.tlsFingerprintType,
+      )
+    : undefined;
+  if (["curl", "python", "go", "java"].includes(uaFamily)) {
+    const tlsSupportsUa = tlsEntry?.families.includes(uaFamily);
+    return createAutomationAssessment(
+      true,
+      uaFamily as "curl" | "python" | "go" | "java",
+      "medium",
+      [
+        `User-Agent claims ${uaFamily}`,
+        ...(tlsSupportsUa ? [`TLS fingerprint is compatible with ${uaFamily}`] : []),
+      ],
+    );
+  }
+
+  return createAutomationAssessment(false, "unknown", "low", []);
 }
 
 /**
@@ -81,12 +121,17 @@ export function detectServerClient(
   const signals = buildServerSignals(context, options);
   const suspicionScore = aggregateServerSuspicionScore(signals);
   const confidence = resolveServerConfidence(signals, suspicionScore);
+  const isLegitClient = suspicionScore < scoreThreshold;
 
   return {
     suspicionScore,
     confidence,
     signals,
-    isLegitClient: suspicionScore < scoreThreshold,
+    isLegitClient,
+    automation: classifyServerAutomation(
+      context,
+      options.suspiciousTlsFingerprints ?? [],
+    ),
     context: buildResultContext(context),
   };
 }

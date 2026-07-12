@@ -2,6 +2,7 @@ import { chromium, type Browser } from "patchright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   openHarnessPage,
+  runMainWorldInstantDetectionAsync,
   runInstantDetection,
   runInstantDetectionAsync,
 } from "../helpers/patchright-harness.js";
@@ -40,6 +41,30 @@ describe("patchright async instant detection", () => {
       result.isShaderF16Supported === true ||
         result.isShaderF16Supported === false,
     ).toBe(true);
+
+    await context.close();
+  });
+
+  it("keeps a Patchright-like isolated-world pattern framework-agnostic", async () => {
+    const { context, page } = await openHarnessPage(browser, server.baseUrl);
+    const result = await runInstantDetectionAsync(page);
+
+    expect(result.isLegitClient).toBe(false);
+    expect(result.automation.kind).toBe("browser-automation");
+    expect(result.automation.alternatives).toContain("playwright");
+
+    await context.close();
+  });
+
+  it("classifies Patchright-launched headless Chromium generically in the main world", async () => {
+    const { context, page } = await openHarnessPage(browser, server.baseUrl);
+    const result = await runMainWorldInstantDetectionAsync(page);
+
+    expect(result.isLegitClient).toBe(false);
+    expect(result.isHeadless).toBe(true);
+    expect(result.isUserAgentDataMismatch).toBe(false);
+    expect(result.automation.kind).toBe("browser-automation");
+    expect(result.automation.alternatives).toContain("patchright");
 
     await context.close();
   });

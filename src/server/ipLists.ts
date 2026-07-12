@@ -2,6 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Track data dirs for which we've already emitted the "no data" warning.
+const warnedAboutMissingData = new Set<string>();
+
 /** Result of matching one IP against the bundled blocklists. */
 export interface IpListMatchResult {
   /** IP falls inside a known datacenter/hosting provider range */
@@ -365,10 +368,14 @@ export function createIpListChecker(dataDir = getDefaultDataDir()): IpListChecke
   );
 
   if (abuseIps.size + datacenterRanges.size + icloudRelayRanges.size === 0) {
-    process.emitWarning(
-      `detect-bot-client: no IP list data found in ${dataDir} — ` +
-        "abuse/datacenter/iCloud relay checks will match nothing",
-    );
+    // One-time warning so it doesn't spam on every request if misconfigured.
+    if (!warnedAboutMissingData.has(dataDir)) {
+      warnedAboutMissingData.add(dataDir);
+      process.emitWarning(
+        `bot-signal: no IP list data found in ${dataDir} — ` +
+          "abuse/datacenter/iCloud relay checks will match nothing",
+      );
+    }
   }
 
   return {
@@ -405,7 +412,14 @@ export function createIpListChecker(dataDir = getDefaultDataDir()): IpListChecke
 let cachedChecker: IpListChecker | undefined;
 let cachedDataDir: string | undefined;
 
-/** Returns a cached {@link IpListChecker} for `dataDir`, creating it on first use. */
+/**
+ * Returns a cached {@link IpListChecker} for `dataDir`, creating it on first use.
+ *
+ * Note: Because of how ESM/CJS interop works, different module instances
+ * (e.g. a mix of import vs require, or multiple copies of the package)
+ * may each have their own cache. For most server apps this is fine.
+ * Call `preloadIpLists()` early at boot.
+ */
 export function getIpListChecker(dataDir?: string): IpListChecker {
   const resolvedDataDir = dataDir ?? getDefaultDataDir();
 
@@ -421,18 +435,27 @@ export function getIpListChecker(dataDir?: string): IpListChecker {
  * Eagerly parses the bundled IP lists into the shared cache so the first
  * request-time check doesn't pay the one-off parse cost (~0.5s for the full
  * bundled data). Call once at server boot. Returns the loaded entry counts.
+ *
+ * See {@link getIpListChecker} for notes on module caching across ESM/CJS.
  */
 export function preloadIpLists(dataDir?: string): IpListChecker["stats"] {
   return getIpListChecker(dataDir).stats;
 }
 
-/** Clears the cached checker — used by tests that swap data directories. */
+/**
+ * Clears the cached checker — used by tests that swap data directories.
+ * @internal
+ */
 export function resetIpListCheckerCache(): void {
   cachedChecker = undefined;
   cachedDataDir = undefined;
+  warnedAboutMissingData.clear();
 }
 
-/** Absolute path of the package's bundled `data/` directory. */
+/**
+ * Absolute path of the package's bundled `data/` directory.
+ * @internal
+ */
 export function getDefaultIpDataDir(): string {
   return getDefaultDataDir();
 }

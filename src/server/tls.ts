@@ -1,4 +1,5 @@
 import type { ConfidenceLevel } from "./types.js";
+import { getScriptingUserAgentKind } from "../userAgent.js";
 
 export interface TlsFingerprintEntry {
   id: string;
@@ -23,43 +24,7 @@ export type UserAgentFamily =
   | "unknown";
 
 /** Curated automation and scripting TLS fingerprints (JA3 hash or prefix) */
-export const KNOWN_SUSPICIOUS_TLS_FINGERPRINTS: TlsFingerprintEntry[] = [
-  {
-    id: "python-urllib3",
-    label: "Python urllib3/requests",
-    hash: "e7d705a3286e19ea42f587b344ee6865",
-    families: ["python", "scripting"],
-    confidence: "high",
-  },
-  {
-    id: "python-urllib3-alt",
-    label: "Python urllib3 alternate",
-    hash: "b32309a26951912be7daeacb6aea7969",
-    families: ["python", "scripting"],
-    confidence: "high",
-  },
-  {
-    id: "curl",
-    label: "curl",
-    hash: "b2114619bfb604579bbb31b673619900",
-    families: ["curl", "scripting"],
-    confidence: "high",
-  },
-  {
-    id: "go-http",
-    label: "Go net/http",
-    hash: "71a02c3315cd8182f8a3e8b2f8b3f6de",
-    families: ["go", "scripting"],
-    confidence: "medium",
-  },
-  {
-    id: "java-http",
-    label: "Java HTTP client",
-    hash: "6734f5e2a5b8d3fe9f3f4ef4e5d0f7b1",
-    families: ["java", "scripting"],
-    confidence: "medium",
-  },
-];
+export const KNOWN_SUSPICIOUS_TLS_FINGERPRINTS: TlsFingerprintEntry[] = [];
 
 const JA3_HASH_PATTERN = /^[0-9a-f]{32}$/;
 
@@ -105,12 +70,9 @@ export function getUserAgentFamily(userAgent: string | undefined): UserAgentFami
     return "unknown";
   }
 
-  if (/curl\//i.test(userAgent)) {
-    return "curl";
-  }
-
-  if (/python-requests|urllib|aiohttp|httpx/i.test(userAgent)) {
-    return "python";
+  const scriptingFamily = getScriptingUserAgentKind(userAgent);
+  if (scriptingFamily) {
+    return scriptingFamily;
   }
 
   if (/HeadlessChrome/i.test(userAgent)) {
@@ -133,14 +95,6 @@ export function getUserAgentFamily(userAgent: string | undefined): UserAgentFami
     return "safari";
   }
 
-  if (/Go-http-client/i.test(userAgent)) {
-    return "go";
-  }
-
-  if (/Java\/|Apache-HttpClient|okhttp/i.test(userAgent)) {
-    return "java";
-  }
-
   return "unknown";
 }
 
@@ -154,21 +108,27 @@ export function isBrowserLikeUserAgent(userAgent: string | undefined): boolean {
 export function findTlsFingerprintEntry(
   fingerprint: string,
   extraFingerprints: string[] = [],
+  fingerprintType: "ja3" | "ja4" = "ja3",
 ): TlsFingerprintEntry | undefined {
   const normalized = normalizeTlsFingerprint(fingerprint);
 
-  for (const entry of KNOWN_SUSPICIOUS_TLS_FINGERPRINTS) {
-    if (entry.hash && normalized === entry.hash) {
-      return entry;
-    }
+  if (fingerprintType === "ja3") {
+    for (const entry of KNOWN_SUSPICIOUS_TLS_FINGERPRINTS) {
+      if (entry.hash && normalized === entry.hash) {
+        return entry;
+      }
 
-    if (entry.prefix && normalized.startsWith(entry.prefix)) {
-      return entry;
+      if (entry.prefix && normalized.startsWith(entry.prefix)) {
+        return entry;
+      }
     }
   }
 
   for (const extra of extraFingerprints) {
     const normalizedExtra = normalizeTlsFingerprint(extra);
+    if (!normalizedExtra) {
+      continue;
+    }
 
     if (
       normalized === normalizedExtra ||
@@ -190,12 +150,16 @@ export function findTlsFingerprintEntry(
 export function isKnownSuspiciousTlsFingerprint(
   fingerprint: string | undefined,
   extraFingerprints: string[] = [],
+  fingerprintType: "ja3" | "ja4" = "ja3",
 ): boolean {
   if (!fingerprint) {
     return false;
   }
 
-  return findTlsFingerprintEntry(fingerprint, extraFingerprints) !== undefined;
+  return (
+    findTlsFingerprintEntry(fingerprint, extraFingerprints, fingerprintType) !==
+    undefined
+  );
 }
 
 /**
@@ -206,13 +170,21 @@ export function isTlsUserAgentMismatch(
   fingerprint: string | undefined,
   userAgent: string | undefined,
   extraFingerprints: string[] = [],
+  fingerprintType: "ja3" | "ja4" = "ja3",
 ): boolean {
   if (!fingerprint || !userAgent) {
     return false;
   }
 
-  const entry = findTlsFingerprintEntry(fingerprint, extraFingerprints);
+  const entry = findTlsFingerprintEntry(
+    fingerprint,
+    extraFingerprints,
+    fingerprintType,
+  );
   if (!entry) {
+    return false;
+  }
+  if (entry.id === "custom") {
     return false;
   }
 

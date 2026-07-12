@@ -18,15 +18,28 @@ export {
   checkShaderF16Support,
   detectInstantClient,
   detectInstantClientAsync,
+  isHuman,
+  isHumanAsync,
   isAutomationArtifacts,
+  isChromeDriver,
   isChromiumBrowser,
   isEmptyPlugins,
+  isLanguageInconsistent,
   isMissingChromeObject,
+  isPlaywright,
+  isPluginMimeTypeInconsistent,
+  isPuppeteer,
   isSoftwareRenderer,
   isSuspiciousWebDriverDescriptor,
   isSuspiciousWindowDimensions,
+  isUserAgentDataMismatch,
   resolveInstantConfidence,
 } from "./detectInstantClient.js";
+export type {
+  AutomationAssessment,
+  AutomationConfidence,
+  AutomationKind,
+} from "./automation.js";
 export type {
   BehavioralClientDetector,
   BehavioralClientResult,
@@ -51,3 +64,4 @@ export type {
   InstantDetectorOptions,
   InstantSignal,
 } from "./types.js";
+export { VERSION } from "./version.js";

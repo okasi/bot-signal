@@ -5,6 +5,8 @@ import {
 } from "./timezone.js";
 import {
   findTlsFingerprintEntry,
+  getUserAgentFamily,
+  isBrowserLikeUserAgent,
   isKnownSuspiciousTlsFingerprint,
   isMissingTlsFingerprint,
   isTlsUserAgentMismatch,
@@ -33,7 +35,64 @@ function createSignal(
   };
 }
 
-/** Evaluates every server-side heuristic and returns the weighted signal list. */
+/**
+ * Explicit scripting-library User-Agent (curl, Python, Go, or Java).
+ * @internal
+ */
+export function isScriptingUserAgent(userAgent: string | undefined): boolean {
+  const family = getUserAgentFamily(userAgent);
+  return ["curl", "python", "go", "java"].includes(family);
+}
+
+/**
+ * Chromium UA version disagrees with the `sec-ch-ua` brand/version header.
+ * @internal
+ */
+export function isClientHintsMismatch(
+  userAgent: string | undefined,
+  secChUa: string | undefined,
+): boolean {
+  if (!userAgent || !secChUa) {
+    return false;
+  }
+
+  const family = getUserAgentFamily(userAgent);
+  if (family !== "chrome" && family !== "chrome-headless" && family !== "edge") {
+    return false;
+  }
+
+  const uaMajor = userAgent.match(/(?:Chrome|Chromium)\/(\d+)/)?.[1];
+  const hintMajors = Array.from(
+    secChUa.matchAll(/"(?:Chromium|Google Chrome|Microsoft Edge)";v="(\d+)/gi),
+    (match) => match[1],
+  );
+
+  return Boolean(
+    uaMajor &&
+      hintMajors.length > 0 &&
+      hintMajors.some((hintMajor) => hintMajor !== uaMajor),
+  );
+}
+
+/**
+ * Browser UA missing one or more Fetch Metadata headers, when explicitly required.
+ * @internal
+ */
+export function isMissingBrowserHeaders(
+  context: ServerClientContext,
+  requireBrowserHeaders: boolean,
+): boolean {
+  return (
+    requireBrowserHeaders &&
+    isBrowserLikeUserAgent(context.userAgent) &&
+    (!context.secFetchSite || !context.secFetchMode || !context.secFetchDest)
+  );
+}
+
+/**
+ * Evaluates every server-side heuristic and returns the weighted signal list.
+ * @internal
+ */
 export function buildServerSignals(
   context: ServerClientContext,
   options: ServerDetectorOptions = {},
@@ -41,14 +100,37 @@ export function buildServerSignals(
   const timezoneToleranceMinutes = options.timezoneToleranceMinutes ?? 60;
   const suspiciousTlsFingerprints = options.suspiciousTlsFingerprints ?? [];
   const requireTlsFingerprint = options.requireTlsFingerprint ?? false;
+  const requireBrowserHeaders = options.requireBrowserHeaders ?? false;
   const suspiciousTlsEntry = context.tlsFingerprint
     ? findTlsFingerprintEntry(
         context.tlsFingerprint,
         suspiciousTlsFingerprints,
+        context.tlsFingerprintType,
       )
     : undefined;
 
   return [
+    createSignal(
+      "scripting-user-agent",
+      "User-Agent claims a scripting HTTP client",
+      isScriptingUserAgent(context.userAgent),
+      0.75,
+      "medium",
+    ),
+    createSignal(
+      "client-hints-mismatch",
+      "User-Agent version conflicts with sec-ch-ua",
+      isClientHintsMismatch(context.userAgent, context.secChUa),
+      0.65,
+      "high",
+    ),
+    createSignal(
+      "missing-browser-headers",
+      "Browser-like User-Agent is missing Fetch Metadata headers",
+      isMissingBrowserHeaders(context, requireBrowserHeaders),
+      0.35,
+      "medium",
+    ),
     createSignal(
       "timezone-mismatch",
       "Client-reported timezone does not match GeoIP timezone",
@@ -71,6 +153,7 @@ export function buildServerSignals(
       isKnownSuspiciousTlsFingerprint(
         context.tlsFingerprint,
         suspiciousTlsFingerprints,
+        context.tlsFingerprintType,
       ),
       0.55,
       suspiciousTlsEntry?.confidence ?? "high",
@@ -82,6 +165,7 @@ export function buildServerSignals(
         context.tlsFingerprint,
         context.userAgent,
         suspiciousTlsFingerprints,
+        context.tlsFingerprintType,
       ),
       0.5,
       "high",

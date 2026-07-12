@@ -1,10 +1,21 @@
 import {
+  createAutomationAssessment,
+  type AutomationAssessment,
+  type AutomationKind,
+} from "./automation.js";
+import {
   isAutomationArtifacts,
+  isChromeDriver,
   isEmptyPlugins,
+  isLanguageInconsistent,
   isMissingChromeObject,
+  isPlaywright,
+  isPluginMimeTypeInconsistent,
+  isPuppeteer,
   isSoftwareRenderer,
   isSuspiciousWebDriverDescriptor,
   isSuspiciousWindowDimensions,
+  isUserAgentDataMismatch,
 } from "./checks.js";
 import type {
   ExtendedWindow,
@@ -14,6 +25,7 @@ import type {
   InstantDetectorOptions,
   InstantSignal,
 } from "./types.js";
+import { getScriptingUserAgentKind } from "./userAgent.js";
 import { checkShaderF16Support, isChromiumBrowser } from "./webgpu.js";
 
 const DEFAULT_SCORE_THRESHOLD = 0.5;
@@ -30,7 +42,12 @@ const MODERN_BROWSER_FLOORS = {
 
 type BooleanChecks = Omit<
   InstantClientResult,
-  "isChromium" | "suspicionScore" | "confidence" | "signals" | "isLegitClient"
+  | "isChromium"
+  | "suspicionScore"
+  | "confidence"
+  | "signals"
+  | "isLegitClient"
+  | "automation"
 >;
 
 interface InstantSignalSpec {
@@ -45,7 +62,7 @@ interface InstantSignalSpec {
 /**
  * Weighted instant checks. Definitive automation markers weigh 0.9–1.0 and
  * block on their own; ambiguous checks that also fire on legitimate clients
- * (in-app browsers, F11 fullscreen, GPU-less VMs, older builds) weigh 0.25–0.35
+ * (in-app browsers, F11 fullscreen, GPU-less VMs, older builds) weigh 0.25–0.45
  * so they only cross the default 0.5 threshold in combination.
  */
 const INSTANT_SIGNAL_SPECS: InstantSignalSpec[] = [
@@ -58,8 +75,11 @@ const INSTANT_SIGNAL_SPECS: InstantSignalSpec[] = [
   { id: "isHeadless", description: "HeadlessChrome user agent or webdriver flag", weight: 0.9, confidence: "high" },
   { id: "isSuspiciousWebDriverDescriptor", description: "navigator.webdriver descriptor was tampered with", weight: 0.9, confidence: "high" },
   { id: "isSuspiciousResolution", description: "Screen smaller than any real device", weight: 0.7, confidence: "medium" },
-  { id: "isUserAgentValid", description: "User agent lacks the standard Mozilla/5.0 prefix", weight: 0.7, confidence: "high", triggerWhenFalse: true },
+  { id: "isUserAgentValid", description: "User agent is malformed or identifies a scripting client", weight: 0.7, confidence: "high", triggerWhenFalse: true },
   { id: "isSoftwareRenderer", description: "WebGL uses a software renderer (SwiftShader/llvmpipe)", weight: 0.6, confidence: "medium" },
+  { id: "isUserAgentDataMismatch", description: "User-Agent conflicts with Client Hints", weight: 0.65, confidence: "high" },
+  { id: "isLanguageInconsistent", description: "Navigator language values are inconsistent", weight: 0.45, confidence: "medium" },
+  { id: "isPluginMimeTypeInconsistent", description: "Plugin and MIME-type arrays are inconsistent", weight: 0.45, confidence: "medium" },
   { id: "isMissingChromeObject", description: "Chromium user agent without window.chrome", weight: 0.35, confidence: "low" },
   { id: "isWebGLSupported", description: "No WebGL context available", weight: 0.35, confidence: "low", triggerWhenFalse: true },
   { id: "isSuspiciousWindowDimensions", description: "No window chrome and parked at the screen origin", weight: 0.3, confidence: "low" },
@@ -101,7 +121,8 @@ function detectSync(context: ExtendedWindow): BooleanChecks {
   const isSuspiciousResolution =
     context.screen.width < 136 || context.screen.height < 170; // Apple Watch Series 3 (38mm)
   const isUserAgentValid =
-    context.navigator.userAgent.startsWith("Mozilla/5.0 (");
+    context.navigator.userAgent.startsWith("Mozilla/5.0 (") &&
+    getScriptingUserAgentKind(context.navigator.userAgent) === null;
   const isWebGLSupported = Boolean(
     context.document.createElement("canvas").getContext("webgl"),
   );
@@ -135,7 +156,13 @@ function detectSync(context: ExtendedWindow): BooleanChecks {
     isSuspiciousWindowDimensions: isSuspiciousWindowDimensions(context),
     isEmptyPlugins: isEmptyPlugins(context),
     isAutomationArtifacts: isAutomationArtifacts(context),
+    isPlaywright: isPlaywright(context),
+    isPuppeteer: isPuppeteer(context),
+    isChromeDriver: isChromeDriver(context),
     isSuspiciousWebDriverDescriptor: isSuspiciousWebDriverDescriptor(context),
+    isUserAgentDataMismatch: isUserAgentDataMismatch(context),
+    isLanguageInconsistent: isLanguageInconsistent(context),
+    isPluginMimeTypeInconsistent: isPluginMimeTypeInconsistent(context),
   };
 }
 
@@ -153,6 +180,7 @@ function createSignal(
  * Builds the weighted instant signal list from the boolean checks. Pass
  * `shaderF16Supported` (a `boolean`) to include the async WebGPU signal;
  * `null`/`undefined` omits it.
+ * @internal
  */
 export function buildInstantSignals(
   checks: BooleanChecks,
@@ -179,7 +207,106 @@ export function buildInstantSignals(
   return signals;
 }
 
-/** Aggregates triggered instant signal weights as `1 - Π(1 - weightᵢ)`. */
+function classifyInstantAutomation(
+  checks: BooleanChecks,
+  isChromium: boolean,
+  confidence: InstantConfidenceLevel,
+  userAgent: string,
+  signals: InstantSignal[],
+): AutomationAssessment {
+  const exactUaKind: AutomationKind | null =
+    getScriptingUserAgentKind(userAgent);
+  if (checks.isPlaywright) {
+    return createAutomationAssessment(true, "playwright", "medium", [
+      "Playwright binding or init-script artifact present",
+    ]);
+  }
+  if (checks.isPuppeteer) {
+    return createAutomationAssessment(true, "puppeteer", "medium", [
+      "Puppeteer evaluation artifact present",
+    ]);
+  }
+  if (checks.isSelenium) {
+    return createAutomationAssessment(true, "selenium", "medium", [
+      "Selenium document artifact present",
+    ]);
+  }
+  if (checks.isChromeDriver) {
+    return createAutomationAssessment(
+      true,
+      "browser-automation",
+      "medium",
+      ["ChromeDriver artifact present"],
+      ["selenium"],
+    );
+  }
+  if (checks.isPhantomJS) {
+    return createAutomationAssessment(true, "phantomjs", "medium", [
+      "PhantomJS global present",
+    ]);
+  }
+  if (checks.isNightmare) {
+    return createAutomationAssessment(true, "nightmare", "medium", [
+      "Nightmare.js global present",
+    ]);
+  }
+
+  if (exactUaKind) {
+    return createAutomationAssessment(
+      true,
+      exactUaKind,
+      "medium",
+      [`User-Agent claims ${exactUaKind}`],
+      isChromium ? ["browser-automation"] : [],
+    );
+  }
+
+  const attributionSignalIds = new Set([
+    "isWebDriver",
+    "isAutomationArtifacts",
+    "isDomAutomation",
+    "isHeadless",
+    "isSuspiciousWebDriverDescriptor",
+  ]);
+  const evidence = signals
+    .filter(
+      (signal) => signal.triggered && attributionSignalIds.has(signal.id),
+    )
+    .map((signal) => signal.description);
+
+  const isBrowserAutomationPattern =
+    checks.isWebDriver ||
+    checks.isAutomationArtifacts ||
+    checks.isDomAutomation ||
+    checks.isHeadless ||
+    checks.isSuspiciousWebDriverDescriptor;
+
+  if (isBrowserAutomationPattern) {
+    const alternatives =
+      checks.isHeadless &&
+      !checks.isWebDriver &&
+      !checks.isDomAutomation &&
+      !checks.isSuspiciousWebDriverDescriptor &&
+      !checks.isAutomationArtifacts &&
+      isChromium
+        ? ["patchright", "playwright", "puppeteer", "selenium"] as const
+        : ["playwright", "puppeteer", "selenium"] as const;
+    return createAutomationAssessment(
+      true,
+      "browser-automation",
+      confidence,
+      evidence,
+      [...alternatives],
+    );
+  }
+
+  return createAutomationAssessment(false, "unknown", "low", []);
+}
+
+/**
+ * Aggregates triggered instant signal weights as `1 - Π(1 - weightᵢ)`.
+ * @internal
+ */
 export function aggregateInstantSuspicionScore(signals: InstantSignal[]): number {
   let keep = 1;
   for (const signal of signals) {
@@ -190,7 +317,10 @@ export function aggregateInstantSuspicionScore(signals: InstantSignal[]): number
   return 1 - keep;
 }
 
-/** Confidence in the verdict based on high-confidence hits and the score. */
+/**
+ * Confidence in the verdict based on high-confidence hits and the score.
+ * @internal
+ */
 export function resolveInstantConfidence(
   signals: InstantSignal[],
   suspicionScore: number,
@@ -214,18 +344,28 @@ function assemble(
   checks: BooleanChecks,
   isChromium: boolean,
   scoreThreshold: number,
+  userAgent: string,
   shaderF16Supported?: boolean | null,
 ): InstantClientResult {
   const signals = buildInstantSignals(checks, shaderF16Supported);
   const suspicionScore = aggregateInstantSuspicionScore(signals);
+  const confidence = resolveInstantConfidence(signals, suspicionScore);
+  const isLegitClient = suspicionScore < scoreThreshold;
 
   return {
     ...checks,
     isChromium,
     suspicionScore,
-    confidence: resolveInstantConfidence(signals, suspicionScore),
+    confidence,
     signals,
-    isLegitClient: suspicionScore < scoreThreshold,
+    isLegitClient,
+    automation: classifyInstantAutomation(
+      checks,
+      isChromium,
+      confidence,
+      userAgent,
+      signals,
+    ),
   };
 }
 
@@ -242,7 +382,12 @@ export function detectInstantClient(
   const checks = detectSync(context);
   const isChromium = isChromiumBrowser(context);
 
-  return assemble(checks, isChromium, scoreThreshold);
+  return assemble(
+    checks,
+    isChromium,
+    scoreThreshold,
+    context.navigator.userAgent,
+  );
 }
 
 /**
@@ -260,17 +405,58 @@ export async function detectInstantClientAsync(
     : null;
 
   return {
-    ...assemble(checks, isChromium, scoreThreshold, shaderF16Supported),
+    ...assemble(
+      checks,
+      isChromium,
+      scoreThreshold,
+      context.navigator.userAgent,
+      shaderF16Supported,
+    ),
     isShaderF16Supported: shaderF16Supported,
   };
 }
 
+/**
+ * Returns `true` if the client looks human according to instant checks
+ * (i.e. `detectInstantClient(...).isLegitClient`).
+ *
+ * This is the simplest entry point from the `bot-signal` package for most browser use cases.
+ */
+export function isHuman(
+  context: ExtendedWindow,
+  options: InstantDetectorOptions = {},
+): boolean {
+  return detectInstantClient(context, options).isLegitClient;
+}
+
+/**
+ * Async version (from the `bot-signal` package) that also runs the WebGPU `shader-f16` check on Chromium.
+ */
+export async function isHumanAsync(
+  context: ExtendedWindow,
+  options: InstantDetectorOptions = {},
+): Promise<boolean> {
+  const result = await detectInstantClientAsync(context, options);
+  return result.isLegitClient;
+}
+
 export {
   isAutomationArtifacts,
+  isChromeDriver,
   isEmptyPlugins,
+  isLanguageInconsistent,
   isMissingChromeObject,
+  isPlaywright,
+  isPluginMimeTypeInconsistent,
+  isPuppeteer,
   isSoftwareRenderer,
   isSuspiciousWebDriverDescriptor,
   isSuspiciousWindowDimensions,
+  isUserAgentDataMismatch,
 } from "./checks.js";
+export type {
+  AutomationAssessment,
+  AutomationConfidence,
+  AutomationKind,
+} from "./automation.js";
 export { checkShaderF16Support, isChromiumBrowser } from "./webgpu.js";

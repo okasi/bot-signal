@@ -12,9 +12,12 @@ export {
   getUserAgentFamily,
   isAcceptLanguageGeoMismatch,
   isBrowserLikeUserAgent,
+  isClientHintsMismatch,
   isDatacenterBrowserMismatch,
   isKnownSuspiciousTlsFingerprint,
   isMissingTlsFingerprint,
+  isMissingBrowserHeaders,
+  isScriptingUserAgent,
   isTimezoneMismatch,
   isTlsUserAgentMismatch,
   isValidJa3Hash,
@@ -26,6 +29,11 @@ export {
   resetIpListCheckerCache,
   resolveServerConfidence,
 } from "./server/index.js";
+export type {
+  AutomationAssessment,
+  AutomationConfidence,
+  AutomationKind,
+} from "./automation.js";
 export type {
   EnrichedServerContext,
   IpGeoResult,
@@ -40,3 +48,4 @@ export type {
   TlsFingerprintEntry,
   UserAgentFamily,
 } from "./server/index.js";
+export { VERSION } from "./version.js";

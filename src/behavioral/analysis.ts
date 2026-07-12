@@ -9,6 +9,18 @@ import type {
   TouchSample,
 } from "./types.js";
 
+/**
+ * Behavioral heuristic tuning constants.
+ *
+ * These thresholds are empirical and chosen to balance detection of obvious
+ * automation against common false positives (touch devices, high-DPI mice,
+ * human variance, window re-entry, OS key repeat, etc.).
+ *
+ * They are intentionally not exposed as runtime options for the main API to
+ * keep the surface small and the behavior predictable. Power users can copy
+ * the analysis functions if they need to tune.
+ */
+
 /** How far back a mouse move or touch still explains a click */
 const CLICK_ORIGIN_WINDOW_MS = 2_000;
 
@@ -16,11 +28,33 @@ const CLICK_ORIGIN_WINDOW_MS = 2_000;
  * gap means the pointer likely left and re-entered the window. */
 const TELEPORT_MAX_ELAPSED_MS = 100;
 
+/** Very fast teleport (implausible human reaction + distance). */
+const TELEPORT_FAST_ELAPSED_MS = 20;
+const TELEPORT_FAST_DISTANCE_PX = 200;
+const TELEPORT_ANY_DISTANCE_PX = 600;
+
 // Linearity is checked over every sliding sub-window as well as the whole
 // trace, so a scripted burst can't hide inside replayed human noise by sitting
 // at an off-grid offset.
 const MOUSE_LINEAR_WINDOW = 14;
 const SCROLL_LINEAR_WINDOW = 8;
+
+/** Minimum samples required before we consider a trace for linearity. */
+const MIN_MOUSE_FOR_LINEAR = 6;
+const MIN_SCROLL_FOR_LINEAR = 4;
+const MIN_KEYS_FOR_LINEAR = 5;
+
+/** Coefficient of variation cutoffs for "too uniform". Lower = more robotic. */
+const MOUSE_CV_SPEED_MAX = 0.08;
+const SCROLL_CV_DELTA_MAX = 0.1;
+const SCROLL_CV_INTERVAL_MAX = 0.12;
+const TYPING_CV_INTERVAL_MAX = 0.08;
+
+/** Max perpendicular deviation (pixels) allowed for a "straight" mouse line. */
+const MOUSE_MAX_LINE_DEVIATION = 4;
+
+/** Typing faster than this average interval (ms) is considered superhuman. */
+const TYPING_SUPERHUMAN_INTERVAL_MS = 25;
 
 /**
  * Returns true if the whole trace, or any contiguous `window`-length slice of
@@ -122,19 +156,25 @@ function isLinearMouseSegment(points: MouseSample[]): boolean {
     return false;
   }
 
-  return coefficientOfVariation(speeds) < 0.08 && maxLineDeviation(points) < 4;
+  return coefficientOfVariation(speeds) < MOUSE_CV_SPEED_MAX && maxLineDeviation(points) < MOUSE_MAX_LINE_DEVIATION;
 }
 
-/** Mouse path is a near-perfect line traversed at near-constant speed. */
+/**
+ * Mouse path is a near-perfect line traversed at near-constant speed.
+ * @internal
+ */
 export function hasLinearMouseMovement(mouseMoves: MouseSample[]): boolean {
-  if (mouseMoves.length < 6) {
+  if (mouseMoves.length < MIN_MOUSE_FOR_LINEAR) {
     return false;
   }
 
   return anyLinearWindow(mouseMoves, MOUSE_LINEAR_WINDOW, isLinearMouseSegment);
 }
 
-/** Cursor covered an implausible distance between closely-spaced events. */
+/**
+ * Cursor covered an implausible distance between closely-spaced events.
+ * @internal
+ */
 export function hasTeleportMouse(mouseMoves: MouseSample[]): boolean {
   for (let index = 1; index < mouseMoves.length; index += 1) {
     const previous = mouseMoves[index - 1];
@@ -147,11 +187,11 @@ export function hasTeleportMouse(mouseMoves: MouseSample[]): boolean {
 
     const distance = Math.hypot(current.x - previous.x, current.y - previous.y);
 
-    if (elapsed <= 20 && distance > 200) {
+    if (elapsed <= TELEPORT_FAST_ELAPSED_MS && distance > TELEPORT_FAST_DISTANCE_PX) {
       return true;
     }
 
-    if (distance > 600) {
+    if (distance > TELEPORT_ANY_DISTANCE_PX) {
       return true;
     }
   }
@@ -176,7 +216,10 @@ function hasRecentSample(
   return samples.some((sample) => sample.t >= at - windowMs && sample.t <= at);
 }
 
-/** A pointer click landed with no mouse or touch activity in the preceding 2s. */
+/**
+ * A pointer click landed with no mouse or touch activity in the preceding 2s.
+ * @internal
+ */
 export function hasClickWithoutMouseMovement(
   mouseMoves: MouseSample[],
   clicks: ClickSample[],
@@ -190,7 +233,10 @@ export function hasClickWithoutMouseMovement(
   );
 }
 
-/** Pointer clicks were recorded in a session with zero mouse or touch events. */
+/**
+ * Pointer clicks were recorded in a session with zero mouse or touch events.
+ * @internal
+ */
 export function hasNoMouseActivity(
   mouseMoves: MouseSample[],
   clicks: ClickSample[],
@@ -212,27 +258,33 @@ function isLinearScrollSegment(scrollEvents: ScrollSample[]): boolean {
   }
 
   return (
-    coefficientOfVariation(deltas) < 0.1 &&
-    coefficientOfVariation(intervals) < 0.12
+    coefficientOfVariation(deltas) < SCROLL_CV_DELTA_MAX &&
+    coefficientOfVariation(intervals) < SCROLL_CV_INTERVAL_MAX
   );
 }
 
-/** Scroll deltas and inter-event timing are too uniform to be a human hand. */
+/**
+ * Scroll deltas and inter-event timing are too uniform to be a human hand.
+ * @internal
+ */
 export function hasLinearScroll(scrollEvents: ScrollSample[]): boolean {
-  if (scrollEvents.length < 4) {
+  if (scrollEvents.length < MIN_SCROLL_FOR_LINEAR) {
     return false;
   }
 
   return anyLinearWindow(scrollEvents, SCROLL_LINEAR_WINDOW, isLinearScrollSegment);
 }
 
-/** Keystroke rhythm is metronome-uniform or faster than humanly possible. */
+/**
+ * Keystroke rhythm is metronome-uniform or faster than humanly possible.
+ * @internal
+ */
 export function hasLinearTyping(keyPresses: KeySample[]): boolean {
   // OS key auto-repeat is perfectly uniform and fast — only analyze
   // deliberate keystrokes.
   const deliberate = keyPresses.filter((key) => !key.repeat);
 
-  if (deliberate.length < 5) {
+  if (deliberate.length < MIN_KEYS_FOR_LINEAR) {
     return false;
   }
 
@@ -245,10 +297,13 @@ export function hasLinearTyping(keyPresses: KeySample[]): boolean {
   const intervalUniformity = coefficientOfVariation(intervals);
   const averageInterval = mean(intervals);
 
-  return intervalUniformity < 0.08 || averageInterval < 25;
+  return intervalUniformity < TYPING_CV_INTERVAL_MAX || averageInterval < TYPING_SUPERHUMAN_INTERVAL_MS;
 }
 
-/** Any observed event was script-dispatched (`isTrusted === false`). */
+/**
+ * Any observed event was script-dispatched (`isTrusted === false`).
+ * @internal
+ */
 export function hasSyntheticEvents(samples: BehavioralSamples): boolean {
   const events = [
     ...samples.mouseMoves,
@@ -261,7 +316,10 @@ export function hasSyntheticEvents(samples: BehavioralSamples): boolean {
   return events.some((event) => !event.isTrusted);
 }
 
-/** Evaluates every behavioral heuristic and returns the weighted signal list. */
+/**
+ * Evaluates every behavioral heuristic and returns the weighted signal list.
+ * @internal
+ */
 export function buildBehavioralSignals(samples: BehavioralSamples): BehavioralSignal[] {
   const touches = samples.touches ?? [];
 

@@ -11,6 +11,7 @@ import type {
  * Combines triggered signal weights into one score:
  * `1 - Π(1 - weightᵢ)` — independent-probability union, so extra signals
  * always raise the score but never past 1.
+ * @internal
  */
 export function aggregateSuspicionScore(signals: BehavioralSignal[]): number {
   const triggered = signals.filter((signal) => signal.triggered);
@@ -28,7 +29,10 @@ export function aggregateSuspicionScore(signals: BehavioralSignal[]): number {
   return 1 - score;
 }
 
-/** Confidence in the verdict based on sample volume and high-confidence signal hits. */
+/**
+ * Confidence in the verdict based on sample volume and high-confidence signal hits.
+ * @internal
+ */
 export function resolveConfidence(
   signals: BehavioralSignal[],
   sampleCounts: BehavioralSampleCounts,
@@ -59,6 +63,10 @@ export function resolveConfidence(
   return "low";
 }
 
+/**
+ * Counts how many events in the samples were not trusted (script-generated).
+ * @internal
+ */
 export function countSyntheticEvents(samples: BehavioralSamples): number {
   return [
     ...samples.mouseMoves,

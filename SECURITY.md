@@ -4,7 +4,7 @@ Please report security issues privately instead of opening a public issue.
 
 Use GitHub private vulnerability reporting if it is available:
 
-https://github.com/okasi/detect-bot-client/security/advisories/new
+https://github.com/okasi/bot-signal/security/advisories/new
 
 Include:
 

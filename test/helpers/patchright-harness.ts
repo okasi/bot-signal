@@ -31,7 +31,13 @@ export const INSTANT_RESULT_KEYS = [
   "isSuspiciousWindowDimensions",
   "isEmptyPlugins",
   "isAutomationArtifacts",
+  "isPlaywright",
+  "isPuppeteer",
+  "isChromeDriver",
   "isSuspiciousWebDriverDescriptor",
+  "isUserAgentDataMismatch",
+  "isLanguageInconsistent",
+  "isPluginMimeTypeInconsistent",
   "isChromium",
   "isLegitClient",
 ] as const;
@@ -49,6 +55,13 @@ export type InstantBrowserResult = Record<
   suspicionScore: number;
   confidence: "high" | "medium" | "low";
   signals: InstantSignalSummary[];
+  automation: {
+    isAutomated: boolean;
+    kind: string;
+    confidence: "high" | "medium" | "low";
+    evidence: string[];
+    alternatives: string[];
+  };
 };
 
 export interface PatchrightSession {
@@ -103,8 +116,6 @@ export async function openHarnessPage(
 ): Promise<PatchrightSession> {
   const context = await browser.newContext({
     viewport: { width: 1280, height: 800 },
-    userAgent:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
     locale: "en-US",
   });
   const page = await context.newPage();
@@ -125,11 +136,81 @@ export async function runInstantDetection(
 
 export async function runInstantDetectionAsync(
   page: Page,
-): Promise<InstantBrowserResult & { isShaderF16Supported: boolean | null }> {
+): Promise<
+  InstantBrowserResult & {
+    isShaderF16Supported: boolean | null;
+  }
+> {
   return page.evaluate(async () => {
     const detection = window.__detection;
     return detection.detectInstantClientAsync(window);
   });
+}
+
+/**
+ * Loads the IIFE as a normal page script and runs detection in the page-owned
+ * main world. The result crosses the Patchright realm boundary through a DOM
+ * attribute so the test does not evaluate the detector from automation code.
+ */
+export async function runMainWorldInstantDetectionAsync(
+  page: Page,
+): Promise<
+  InstantBrowserResult & {
+    isShaderF16Supported: boolean | null;
+  }
+> {
+  const resultAttribute = "data-main-world-detection-result";
+
+  await page.evaluate(
+    async ({ attribute }) => {
+      document.documentElement.removeAttribute(attribute);
+
+      let bundle = document.querySelector<HTMLScriptElement>(
+        "script[data-detection-main-world]",
+      );
+      if (!bundle) {
+        bundle = document.createElement("script");
+        bundle.src = "/dist/browser.global.js";
+        bundle.dataset.detectionMainWorld = "true";
+        await new Promise<void>((resolve, reject) => {
+          bundle?.addEventListener("load", () => resolve(), { once: true });
+          bundle?.addEventListener(
+            "error",
+            () => reject(new Error("bundle load failed")),
+            { once: true },
+          );
+          document.head.append(bundle as HTMLScriptElement);
+        });
+      }
+
+      const runner = document.createElement("script");
+      runner.textContent = `void (async () => {
+        try {
+          const result = await window.BotSignal.detectInstantClientAsync(window);
+          document.documentElement.setAttribute(${JSON.stringify(attribute)}, JSON.stringify(result));
+        } catch (error) {
+          document.documentElement.setAttribute(${JSON.stringify(attribute)}, JSON.stringify({ error: String(error) }));
+        }
+      })();`;
+      document.head.append(runner);
+      runner.remove();
+    },
+    { attribute: resultAttribute },
+  );
+
+  await page.waitForFunction(
+    (attribute) => document.documentElement.hasAttribute(attribute),
+    resultAttribute,
+  );
+  const serialized = await page.locator("html").getAttribute(resultAttribute);
+  const result = JSON.parse(serialized ?? "null") as InstantBrowserResult & {
+    isShaderF16Supported: boolean | null;
+    error?: string;
+  };
+  if (result.error) {
+    throw new Error(result.error);
+  }
+  return result;
 }
 
 export async function runBehavioralObserve(
@@ -345,13 +426,19 @@ export function triggeredSignalIds(
 interface HarnessWindow extends Window {
   __harnessReady?: boolean;
   __detection: {
+    isHuman: (window: any, opts?: any) => boolean;
+    isHumanAsync: (window: any, opts?: any) => Promise<boolean>;
     detectInstantClient: (
       context: Window,
       options?: { scoreThreshold?: number },
     ) => InstantBrowserResult;
     detectInstantClientAsync: (
       context: Window,
-    ) => Promise<InstantBrowserResult & { isShaderF16Supported: boolean | null }>;
+    ) => Promise<
+      InstantBrowserResult & {
+        isShaderF16Supported: boolean | null;
+      }
+    >;
     createBehavioralClientDetector: (options: {
       context: Window;
       scoreThreshold?: number;
