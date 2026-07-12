@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/icon.svg" alt="bot-signal logo" width="88" height="88">
+
 # bot-signal
 
 **bot-signal** — bot signal detection in the browser and on the server.
