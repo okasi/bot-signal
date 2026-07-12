@@ -180,9 +180,17 @@ GitHub Actions (`.github/workflows/publish.yml`) publishes via **npm Trusted Pub
 
 **First release:** publish as `bot-signal`. One-time local `npm publish --access public`, then Trusted publishing: `okasi` / `bot-signal` / `publish.yml`.
 
+Every user-facing release must also be published to npm. Before finishing release work:
+
+1. Bump the version in `package.json` and `package-lock.json` (npm versions are immutable).
+2. Run `npm run check`, commit the release, and push the commit.
+3. Create and push the matching `v*` tag so `.github/workflows/publish.yml` publishes it.
+4. Verify `npm view bot-signal version` reports the new version; do not consider the release complete until it is available on npmjs.com.
+
 ## Pull request checklist
 
 - [ ] `npm run check` passes
 - [ ] `README.md` updated for user-facing changes
 - [ ] `AGENTS.md` updated if architecture or layout changed
+- [ ] User-facing releases are versioned, tagged, published, and verified on npmjs.com
 - [ ] No new documentation files beyond README.md and AGENTS.md
