@@ -2,12 +2,18 @@ name: Publish npm
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
   workflow_dispatch:
 
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
@@ -16,6 +22,15 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Prepare automatic patch release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          npm version patch --no-git-tag-version
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          node -e "const fs = require('node:fs'); const path = 'src/version.ts'; const source = fs.readFileSync(path, 'utf8'); fs.writeFileSync(path, source.replace(/export const VERSION = \"[^\"]+\";/, 'export const VERSION = \"' + process.argv[1] + '\";'))" "$PKG_VERSION"
 
       - name: Verify tag matches package version
         if: startsWith(github.ref, 'refs/tags/')
@@ -81,6 +96,17 @@ jobs:
       - name: Package lint
         if: steps.publish_status.outputs.should_publish == 'true'
         run: npm run lint:package
+
+      - name: Commit and tag automatic release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.publish_status.outputs.should_publish == 'true'
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json src/version.ts
+          git commit -m "Release bot-signal $PKG_VERSION [skip release]"
+          git tag -a "v$PKG_VERSION" -m "bot-signal v$PKG_VERSION"
+          git push origin HEAD:main "v$PKG_VERSION"
 
       # Trusted Publishing (OIDC) — no NPM_TOKEN. npm automatically creates
       # provenance for public packages published from GitHub Actions.

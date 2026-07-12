@@ -176,16 +176,15 @@ each with ESM + CJS + split `.d.ts`/`.d.cts`. CDN: `unpkg`/`jsdelivr` point at
 `dist/browser.global.js` (IIFE, global `BotSignal`). Keep `publint` and
 `@arethetypeswrong/cli` green when touching the exports map.
 
-GitHub Actions (`.github/workflows/publish.yml`) publishes via **npm Trusted Publishing** (OIDC).
+GitHub Actions (`.github/workflows/publish.yml`) publishes via **npm Trusted Publishing** (OIDC). Every push to `main` automatically creates a patch release: the workflow increments `package.json`, `package-lock.json`, and `src/version.ts`, commits the release version, creates the matching `v*` tag, and publishes it to npm. The workflow uses a concurrency group so main pushes release serially, and GitHub's built-in token prevents the generated release commit/tag from recursively starting another workflow.
 
 **First release:** publish as `bot-signal`. One-time local `npm publish --access public`, then Trusted publishing: `okasi` / `bot-signal` / `publish.yml`.
 
-Every user-facing release must also be published to npm. Before finishing release work:
+Every user-facing release must also be published to npm. The normal release process is:
 
-1. Bump the version in `package.json` and `package-lock.json` (npm versions are immutable).
-2. Run `npm run check`, commit the release, and push the commit.
-3. Create and push the matching `v*` tag so `.github/workflows/publish.yml` publishes it.
-4. Verify `npm view bot-signal version` reports the new version; do not consider the release complete until it is available on npmjs.com.
+1. Run `npm run check`, commit the user-facing change, and push it to `main`.
+2. Let `.github/workflows/publish.yml` create the patch version commit and matching `v*` tag and publish through OIDC. Do not manually bump the version for an ordinary main-branch release.
+3. Verify `npm view bot-signal version` reports the new version; do not consider the release complete until it is available on npmjs.com.
 
 ## Pull request checklist
 
