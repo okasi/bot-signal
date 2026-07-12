@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Verify tag matches package version
         if: startsWith(github.ref, 'refs/tags/')
@@ -28,11 +28,10 @@ jobs:
           fi
 
       - name: Setup Node.js 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-          package-manager-cache: false
 
       # Trusted Publishing requires npm 11.5.1 or newer. Do not rely on the
       # npm version bundled with the selected Node.js release.
@@ -44,36 +43,47 @@ jobs:
           node --version
           npm --version
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Unit coverage
-        run: npm run test:coverage
-
-      - name: Install Patchright Chromium
-        run: npx patchright install chromium
-
-      - name: Patchright browser tests
-        run: npm run test:patchright
-
-      - name: Build
-        run: npm run build
-
-      - name: Package lint
-        run: npm run lint:package
-
-      - name: Verify version is not already published
+      - name: Check whether version is already published
+        id: publish_status
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
           if npm view "bot-signal@$PKG_VERSION" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
-            echo "bot-signal@$PKG_VERSION is already published. Bump the package version before publishing."
-            exit 1
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            echo "### bot-signal@$PKG_VERSION is already published; nothing to do." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Install dependencies
+        if: steps.publish_status.outputs.should_publish == 'true'
+        run: npm ci
+
+      - name: Typecheck
+        if: steps.publish_status.outputs.should_publish == 'true'
+        run: npm run typecheck
+
+      - name: Unit coverage
+        if: steps.publish_status.outputs.should_publish == 'true'
+        run: npm run test:coverage
+
+      - name: Install Patchright Chromium
+        if: steps.publish_status.outputs.should_publish == 'true'
+        run: npx patchright install chromium
+
+      - name: Patchright browser tests
+        if: steps.publish_status.outputs.should_publish == 'true'
+        run: npm run test:patchright
+
+      - name: Build
+        if: steps.publish_status.outputs.should_publish == 'true'
+        run: npm run build
+
+      - name: Package lint
+        if: steps.publish_status.outputs.should_publish == 'true'
+        run: npm run lint:package
 
       # Trusted Publishing (OIDC) — no NPM_TOKEN. npm automatically creates
       # provenance for public packages published from GitHub Actions.
       - name: Publish to npm
+        if: steps.publish_status.outputs.should_publish == 'true'
         run: npm publish --access public --registry=https://registry.npmjs.org
