@@ -4,21 +4,37 @@ import {
   type AutomationKind,
 } from "./automation.js";
 import {
+  checkCdpRuntime,
+  checkHighEntropyUserAgentData,
+  checkNotificationPermissionConsistency,
+  checkWorkerConsistency,
+} from "./asyncChecks.js";
+import {
   isAutomationArtifacts,
+  isCanvasTampered,
   isChromeDriver,
+  isDefaultAutomationViewport,
   isEmptyPlugins,
+  isErrorStackAutomation,
+  isIframeInconsistent,
   isLanguageInconsistent,
   isMissingChromeObject,
+  isNativeFunctionTampered,
+  isNavigatorIdentityInconsistent,
   isPlaywright,
+  isPluginArrayInconsistent,
   isPluginMimeTypeInconsistent,
   isPuppeteer,
   isSoftwareRenderer,
+  isSuspiciousHardware,
   isSuspiciousWebDriverDescriptor,
   isSuspiciousWindowDimensions,
   isUserAgentDataMismatch,
+  isZeroConnectionRtt,
 } from "./checks.js";
 import type {
   ExtendedWindow,
+  InstantAsyncChecks,
   InstantClientAsyncResult,
   InstantClientResult,
   InstantConfidenceLevel,
@@ -67,17 +83,22 @@ interface InstantSignalSpec {
  */
 const INSTANT_SIGNAL_SPECS: InstantSignalSpec[] = [
   { id: "isWebDriver", description: "navigator.webdriver is set", weight: 1, confidence: "high" },
-  { id: "isAutomationArtifacts", description: "ChromeDriver/Puppeteer/Playwright artifacts present", weight: 1, confidence: "high" },
+  { id: "isAutomationArtifacts", description: "Automation framework/runtime artifacts present", weight: 1, confidence: "high" },
   { id: "isSelenium", description: "Selenium markers on document", weight: 1, confidence: "high" },
   { id: "isPhantomJS", description: "PhantomJS globals present", weight: 1, confidence: "high" },
   { id: "isNightmare", description: "Nightmare.js marker present", weight: 1, confidence: "high" },
   { id: "isDomAutomation", description: "DOM automation controller globals present", weight: 1, confidence: "high" },
-  { id: "isHeadless", description: "HeadlessChrome user agent or webdriver flag", weight: 0.9, confidence: "high" },
+  { id: "isHeadless", description: "HeadlessChrome user agent/appVersion or webdriver flag", weight: 0.9, confidence: "high" },
   { id: "isSuspiciousWebDriverDescriptor", description: "navigator.webdriver descriptor was tampered with", weight: 0.9, confidence: "high" },
   { id: "isSuspiciousResolution", description: "Screen smaller than any real device", weight: 0.7, confidence: "medium" },
   { id: "isUserAgentValid", description: "User agent is malformed or identifies a scripting client", weight: 0.7, confidence: "high", triggerWhenFalse: true },
   { id: "isSoftwareRenderer", description: "WebGL uses a software renderer (SwiftShader/llvmpipe)", weight: 0.6, confidence: "medium" },
   { id: "isUserAgentDataMismatch", description: "User-Agent conflicts with Client Hints", weight: 0.65, confidence: "high" },
+  { id: "isNativeFunctionTampered", description: "Native browser functions or Navigator getters were patched", weight: 0.8, confidence: "high" },
+  { id: "isNavigatorIdentityInconsistent", description: "Navigator vendor/platform/product/touch claims conflict with the User-Agent", weight: 0.65, confidence: "high" },
+  { id: "isPluginArrayInconsistent", description: "Plugin or MIME-type arrays have non-native prototypes", weight: 0.65, confidence: "high" },
+  { id: "isIframeInconsistent", description: "Navigator values differ between the main realm and a fresh iframe", weight: 0.8, confidence: "high" },
+  { id: "isErrorStackAutomation", description: "Error stack contains an automation source marker", weight: 0.85, confidence: "high" },
   { id: "isLanguageInconsistent", description: "Navigator language values are inconsistent", weight: 0.45, confidence: "medium" },
   { id: "isPluginMimeTypeInconsistent", description: "Plugin and MIME-type arrays are inconsistent", weight: 0.45, confidence: "medium" },
   { id: "isMissingChromeObject", description: "Chromium user agent without window.chrome", weight: 0.35, confidence: "low" },
@@ -85,14 +106,28 @@ const INSTANT_SIGNAL_SPECS: InstantSignalSpec[] = [
   { id: "isSuspiciousWindowDimensions", description: "No window chrome and parked at the screen origin", weight: 0.3, confidence: "low" },
   { id: "isModern", description: "Browser build is below the modern baseline", weight: 0.3, confidence: "low", triggerWhenFalse: true },
   { id: "isEmptyPlugins", description: "Desktop Chromium with an empty plugin list", weight: 0.25, confidence: "low" },
+  { id: "isSuspiciousHardware", description: "CPU and device-memory values are implausible or contradictory", weight: 0.3, confidence: "low" },
+  { id: "isZeroConnectionRtt", description: "Network Information reports a zero RTT outside Android", weight: 0.2, confidence: "low" },
+  { id: "isDefaultAutomationViewport", description: "Screen or viewport matches a common automation default", weight: 0.2, confidence: "low" },
+  { id: "isCanvasTampered", description: "A deterministic canvas pixel was modified on readback", weight: 0.2, confidence: "low" },
 ];
 
-const SHADER_F16_SPEC = {
-  id: "isShaderF16Supported",
-  description: "WebGPU shader-f16 feature is missing on Chromium",
-  weight: 0.3,
-  confidence: "low" as InstantConfidenceLevel,
-};
+interface AsyncSignalSpec {
+  id: keyof InstantAsyncChecks;
+  description: string;
+  weight: number;
+  confidence: InstantConfidenceLevel;
+  triggerWhenFalse?: boolean;
+}
+
+const INSTANT_ASYNC_SIGNAL_SPECS: AsyncSignalSpec[] = [
+  { id: "isShaderF16Supported", description: "WebGPU shader-f16 feature is missing on Chromium", weight: 0.3, confidence: "low", triggerWhenFalse: true },
+  { id: "isCdpDetected", description: "Chrome DevTools Protocol serialized an Error object", weight: 0.7, confidence: "medium" },
+  { id: "isNotificationPermissionInconsistent", description: "Notification and Permissions API states contradict", weight: 0.55, confidence: "high" },
+  { id: "isHighEntropyUserAgentDataMismatch", description: "High-entropy Client Hints conflict with the User-Agent", weight: 0.65, confidence: "high" },
+  { id: "isWorkerInconsistent", description: "Worker Navigator values conflict with the main realm", weight: 0.8, confidence: "high" },
+  { id: "isCdpDetectedInWorker", description: "Chrome DevTools Protocol serialized an Error inside a worker", weight: 0.7, confidence: "medium" },
+];
 
 function parseBrowserVersion(userAgent: string, pattern: RegExp): number {
   const match = userAgent.match(pattern);
@@ -105,9 +140,16 @@ function detectSync(context: ExtendedWindow): BooleanChecks {
   const isPhantomJS = Boolean(context.callPhantom || context._phantom);
   const isNightmare = Boolean(context.__nightmare);
   const isSelenium = Boolean(
-    context.document.__selenium_unwrapped ||
+    context._Selenium_IDE_Recorder ||
+      context._selenium ||
+      context.calledSelenium ||
+      context.document.__selenium_evaluate ||
+      context.document.__selenium_unwrapped ||
       context.document.__webdriver_evaluate ||
-      context.document.__driver_evaluate,
+      context.document.__driver_evaluate ||
+      context.document.__fxdriver_evaluate ||
+      context.document.__driver_unwrapped ||
+      context.document.__webdriver_unwrapped,
   );
   const isDomAutomation = Boolean(
     context.domAutomation || context.domAutomationController,
@@ -116,7 +158,8 @@ function detectSync(context: ExtendedWindow): BooleanChecks {
   // Custom checks by okasi
   const isHeadless = Boolean(
     context.navigator.webdriver ||
-      context.navigator.userAgent.includes("Headless"),
+      context.navigator.userAgent.includes("Headless") ||
+      context.navigator.appVersion?.includes("Headless"),
   );
   const isSuspiciousResolution =
     context.screen.width < 136 || context.screen.height < 170; // Apple Watch Series 3 (38mm)
@@ -163,6 +206,15 @@ function detectSync(context: ExtendedWindow): BooleanChecks {
     isUserAgentDataMismatch: isUserAgentDataMismatch(context),
     isLanguageInconsistent: isLanguageInconsistent(context),
     isPluginMimeTypeInconsistent: isPluginMimeTypeInconsistent(context),
+    isNativeFunctionTampered: isNativeFunctionTampered(context),
+    isNavigatorIdentityInconsistent: isNavigatorIdentityInconsistent(context),
+    isPluginArrayInconsistent: isPluginArrayInconsistent(context),
+    isIframeInconsistent: isIframeInconsistent(context),
+    isErrorStackAutomation: isErrorStackAutomation(context),
+    isDefaultAutomationViewport: isDefaultAutomationViewport(context),
+    isSuspiciousHardware: isSuspiciousHardware(context),
+    isZeroConnectionRtt: isZeroConnectionRtt(context),
+    isCanvasTampered: isCanvasTampered(context),
   };
 }
 
@@ -178,30 +230,41 @@ function createSignal(
 
 /**
  * Builds the weighted instant signal list from the boolean checks. Pass
- * `shaderF16Supported` (a `boolean`) to include the async WebGPU signal;
- * `null`/`undefined` omits it.
+ * Pass `asyncChecks` to include async-only WebGPU, CDP, permission, Client
+ * Hints, and worker signals. `null`/`undefined` values are omitted.
  * @internal
  */
 export function buildInstantSignals(
   checks: BooleanChecks,
-  shaderF16Supported?: boolean | null,
+  asyncChecks?: Partial<InstantAsyncChecks> | boolean | null,
 ): InstantSignal[] {
+  const resolvedAsyncChecks =
+    typeof asyncChecks === "boolean"
+      ? { isShaderF16Supported: asyncChecks }
+      : asyncChecks;
   const signals = INSTANT_SIGNAL_SPECS.map((spec) => {
     const value = checks[spec.id];
     const triggered = spec.triggerWhenFalse ? !value : value;
     return createSignal(spec.id, spec.description, triggered, spec.weight, spec.confidence);
   });
 
-  if (shaderF16Supported === false) {
-    signals.push(
-      createSignal(
-        SHADER_F16_SPEC.id,
-        SHADER_F16_SPEC.description,
-        true,
-        SHADER_F16_SPEC.weight,
-        SHADER_F16_SPEC.confidence,
-      ),
-    );
+  for (const spec of INSTANT_ASYNC_SIGNAL_SPECS) {
+    const value = resolvedAsyncChecks?.[spec.id];
+    if (value === null || value === undefined) {
+      continue;
+    }
+    const triggered = spec.triggerWhenFalse ? !value : value;
+    if (triggered) {
+      signals.push(
+        createSignal(
+          spec.id,
+          spec.description,
+          true,
+          spec.weight,
+          spec.confidence,
+        ),
+      );
+    }
   }
 
   return signals;
@@ -345,9 +408,9 @@ function assemble(
   isChromium: boolean,
   scoreThreshold: number,
   userAgent: string,
-  shaderF16Supported?: boolean | null,
+  asyncChecks?: Partial<InstantAsyncChecks>,
 ): InstantClientResult {
-  const signals = buildInstantSignals(checks, shaderF16Supported);
+  const signals = buildInstantSignals(checks, asyncChecks);
   const suspicionScore = aggregateInstantSuspicionScore(signals);
   const confidence = resolveInstantConfidence(signals, suspicionScore);
   const isLegitClient = suspicionScore < scoreThreshold;
@@ -391,7 +454,8 @@ export function detectInstantClient(
 }
 
 /**
- * Instant checks plus async WebGPU `shader-f16` support on Chromium browsers.
+ * Instant checks plus async WebGPU, CDP, permissions, high-entropy Client
+ * Hints, and worker-realm consistency checks.
  */
 export async function detectInstantClientAsync(
   context: ExtendedWindow,
@@ -403,6 +467,24 @@ export async function detectInstantClientAsync(
   const shaderF16Supported = isChromium
     ? await checkShaderF16Support(context)
     : null;
+  const [
+    isCdpDetected,
+    isNotificationPermissionInconsistent,
+    isHighEntropyUserAgentDataMismatch,
+    workerChecks,
+  ] = await Promise.all([
+    checkCdpRuntime(context),
+    checkNotificationPermissionConsistency(context),
+    checkHighEntropyUserAgentData(context),
+    checkWorkerConsistency(context),
+  ]);
+  const asyncChecks: InstantAsyncChecks = {
+    isShaderF16Supported: shaderF16Supported,
+    isCdpDetected,
+    isNotificationPermissionInconsistent,
+    isHighEntropyUserAgentDataMismatch,
+    ...workerChecks,
+  };
 
   return {
     ...assemble(
@@ -410,9 +492,9 @@ export async function detectInstantClientAsync(
       isChromium,
       scoreThreshold,
       context.navigator.userAgent,
-      shaderF16Supported,
+      asyncChecks,
     ),
-    isShaderF16Supported: shaderF16Supported,
+    ...asyncChecks,
   };
 }
 
@@ -442,18 +524,34 @@ export async function isHumanAsync(
 
 export {
   isAutomationArtifacts,
+  isCanvasTampered,
   isChromeDriver,
+  isDefaultAutomationViewport,
   isEmptyPlugins,
+  isErrorStackAutomation,
+  isIframeInconsistent,
   isLanguageInconsistent,
   isMissingChromeObject,
+  isNativeFunctionTampered,
+  isNavigatorIdentityInconsistent,
   isPlaywright,
+  isPluginArrayInconsistent,
   isPluginMimeTypeInconsistent,
   isPuppeteer,
   isSoftwareRenderer,
+  isSuspiciousHardware,
   isSuspiciousWebDriverDescriptor,
   isSuspiciousWindowDimensions,
   isUserAgentDataMismatch,
+  isZeroConnectionRtt,
 } from "./checks.js";
+export {
+  checkCdpRuntime,
+  checkHighEntropyUserAgentData,
+  checkNotificationPermissionConsistency,
+  checkWorkerConsistency,
+} from "./asyncChecks.js";
+export type { WorkerChecks } from "./asyncChecks.js";
 export type {
   AutomationAssessment,
   AutomationConfidence,

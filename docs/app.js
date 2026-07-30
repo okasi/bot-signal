@@ -60,7 +60,7 @@ for (const button of document.querySelectorAll("[data-copy-target]")) {
 
 const CHECKS = [
   ["isWebDriver", "navigator.webdriver is set — the standard automation beacon", "bad"],
-  ["isAutomationArtifacts", "ChromeDriver, Puppeteer, or Playwright leftovers on window/document", "bad"],
+  ["isAutomationArtifacts", "Automation framework/runtime leftovers on window/document", "bad"],
   ["isPlaywright", "Attribution detail: Playwright binding or init-script artifact", "info"],
   ["isPuppeteer", "Attribution detail: Puppeteer evaluation artifact", "info"],
   ["isChromeDriver", "Attribution detail: ChromeDriver artifact", "info"],
@@ -74,14 +74,28 @@ const CHECKS = [
   ["isEmptyPlugins", "Zero navigator.plugins on desktop Chromium", "bad"],
   ["isSoftwareRenderer", "SwiftShader / llvmpipe software GPU renderer", "bad"],
   ["isUserAgentDataMismatch", "User-Agent conflicts with Client Hints", "bad"],
+  ["isNativeFunctionTampered", "Native functions or Navigator getters were patched", "bad"],
+  ["isNavigatorIdentityInconsistent", "Navigator vendor, platform, product, or touch claims conflict with the UA", "bad"],
+  ["isPluginArrayInconsistent", "Plugin or MIME arrays use non-native prototypes", "bad"],
+  ["isIframeInconsistent", "Navigator values differ in a fresh same-origin iframe", "bad"],
+  ["isErrorStackAutomation", "Error stack contains an automation source marker", "bad"],
   ["isLanguageInconsistent", "navigator.language conflicts with navigator.languages", "bad"],
   ["isPluginMimeTypeInconsistent", "Plugin and MIME-type arrays disagree", "bad"],
   ["isSuspiciousResolution", "Screen smaller than any real device (136×170)", "bad"],
   ["isSuspiciousWindowDimensions", "No window chrome and parked exactly at the screen origin", "bad"],
+  ["isDefaultAutomationViewport", "Screen or viewport matches an untouched automation default", "bad"],
+  ["isSuspiciousHardware", "CPU and device-memory values are implausible or contradictory", "bad"],
+  ["isZeroConnectionRtt", "Network Information reports zero RTT outside Android", "bad"],
+  ["isCanvasTampered", "A deterministic canvas pixel changed on readback", "bad"],
   ["isUserAgentValid", "User agent has the Mozilla prefix and no scripting-client token", "good"],
   ["isWebGLSupported", "A WebGL context can be created (headless Chromium 139+ has none)", "good"],
   ["isModern", "Chrome 121+ / Firefox 128+ / Safari 16.4+", "good"],
   ["isShaderF16Supported", "WebGPU shader-f16 feature (Chromium only, async run)", "shader"],
+  ["isCdpDetected", "CDP serialized an Error object (async run)", "async-bad"],
+  ["isNotificationPermissionInconsistent", "Notification and Permissions API states contradict (async run)", "async-bad"],
+  ["isHighEntropyUserAgentDataMismatch", "High-entropy Client Hints conflict with the UA (async run)", "async-bad"],
+  ["isWorkerInconsistent", "Worker Navigator values differ from the main realm (async run)", "async-bad"],
+  ["isCdpDetectedInWorker", "CDP serialized an Error inside a worker (async run)", "async-bad"],
   ["isChromium", "Chromium-based browser — decides which checks apply", "info"],
 ];
 
@@ -121,6 +135,14 @@ function checkStatus(key, value, kind, soft) {
     return soft
       ? { state: "soft", result: "false", verdict: "Soft suspicious" }
       : { state: "flag", result: "false", verdict: "Suspicious" };
+  }
+  if (kind === "async-bad") {
+    if (value === undefined) {
+      return { state: "na", result: "n/a", verdict: "Run async check" };
+    }
+    if (value === null) {
+      return { state: "na", result: "n/a", verdict: "Not available" };
+    }
   }
   const flagged = kind === "good" ? !value : Boolean(value);
   const result = String(Boolean(value));

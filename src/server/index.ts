@@ -1,6 +1,10 @@
 export {
   buildServerSignals,
   isClientHintsMismatch,
+  isClientHintsMobileMismatch,
+  isClientLanguageMismatch,
+  isClientPlatformMismatch,
+  isClientUserAgentMismatch,
   isMissingBrowserHeaders,
   isScriptingUserAgent,
 } from "./analysis.js";

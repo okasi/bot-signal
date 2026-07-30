@@ -17,6 +17,10 @@ import {
   isAcceptLanguageGeoMismatch,
   isBrowserLikeUserAgent,
   isClientHintsMismatch,
+  isClientHintsMobileMismatch,
+  isClientLanguageMismatch,
+  isClientPlatformMismatch,
+  isClientUserAgentMismatch,
   isDatacenterBrowserMismatch,
   isKnownSuspiciousTlsFingerprint,
   isMissingTlsFingerprint,
@@ -576,6 +580,140 @@ describe("request fingerprint helpers", () => {
         '"Chromium";v="121", "Google Chrome";v="149"',
       ),
     ).toBe(true);
+  });
+
+  it("compares HTTP and browser-reported User-Agents", () => {
+    expect(isClientUserAgentMismatch(undefined, CHROME_UA)).toBe(false);
+    expect(isClientUserAgentMismatch(CHROME_UA, undefined)).toBe(false);
+    expect(isClientUserAgentMismatch(` ${CHROME_UA} `, CHROME_UA)).toBe(false);
+    expect(isClientUserAgentMismatch(CHROME_UA, "different-agent")).toBe(true);
+  });
+
+  it("compares Accept-Language with Navigator language values", () => {
+    expect(isClientLanguageMismatch(undefined, "en-US", ["en-US"])).toBe(false);
+    expect(isClientLanguageMismatch("en-US", undefined, undefined)).toBe(false);
+    expect(isClientLanguageMismatch("en-US", "en-US", ["en-US", "en"])).toBe(false);
+    expect(isClientLanguageMismatch("en-US", "sv-SE", ["en-US"])).toBe(true);
+    expect(isClientLanguageMismatch("en-US", undefined, ["sv-SE"])).toBe(true);
+    expect(isClientLanguageMismatch("en-US", undefined, ["en-US"])).toBe(false);
+    expect(
+      isClientLanguageMismatch(
+        "en-US;q=0, sv-SE;q=0.7",
+        "sv-SE",
+        ["sv-SE"],
+      ),
+    ).toBe(false);
+    expect(
+      isClientLanguageMismatch("en-US;q=0.000", "en-US", ["en-US"]),
+    ).toBe(false);
+    expect(isClientLanguageMismatch(" ;q=0", "en-US", ["en-US"])).toBe(false);
+    expect(isClientLanguageMismatch("en-US;q=bogus", "en-US", ["en-US"])).toBe(false);
+  });
+
+  it.each([
+    ["Mozilla/5.0 (Linux; Android 14)", "Linux armv8l"],
+    ["Mozilla/5.0 (X11; CrOS x86_64)", "CrOS x86_64"],
+    [CHROME_UA, "Win32"],
+    ["Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)", "iPhone"],
+    ["Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)", "MacIntel"],
+    ["Mozilla/5.0 (X11; Linux x86_64)", "Linux x86_64"],
+  ])("accepts compatible client platform %#", (userAgent, platform) => {
+    expect(isClientPlatformMismatch(userAgent, platform, undefined)).toBe(false);
+  });
+
+  it("compares JS and Client Hints platform claims with the UA", () => {
+    expect(isClientPlatformMismatch(undefined, "Win32", '"Windows"')).toBe(false);
+    expect(isClientPlatformMismatch("custom-agent", "Win32", '"Windows"')).toBe(false);
+    expect(isClientPlatformMismatch(CHROME_UA, undefined, undefined)).toBe(false);
+    expect(isClientPlatformMismatch(CHROME_UA, "Linux", undefined)).toBe(true);
+    expect(isClientPlatformMismatch(CHROME_UA, undefined, '"Linux"')).toBe(true);
+    expect(isClientPlatformMismatch(CHROME_UA, "unknown", '"Windows"')).toBe(false);
+    expect(
+      isClientPlatformMismatch(
+        "Mozilla/5.0 (Linux; Android 14)",
+        "Android",
+        undefined,
+      ),
+    ).toBe(false);
+    expect(
+      isClientPlatformMismatch(
+        "Mozilla/5.0 (X11; CrOS x86_64)",
+        "Chrome OS",
+        undefined,
+      ),
+    ).toBe(false);
+    expect(
+      isClientPlatformMismatch(
+        "Mozilla/5.0 (iPad; CPU OS 17_0)",
+        "iOS",
+        undefined,
+      ),
+    ).toBe(false);
+    expect(
+      isClientPlatformMismatch(
+        "Mozilla/5.0 (iPad; CPU OS 17_0)",
+        "MacIntel",
+        undefined,
+      ),
+    ).toBe(false);
+    expect(
+      isClientPlatformMismatch(
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)",
+        "macOS",
+        undefined,
+      ),
+    ).toBe(false);
+  });
+
+  it("compares sec-ch-ua-mobile with the User-Agent", () => {
+    expect(isClientHintsMobileMismatch(undefined, "?0")).toBe(false);
+    expect(isClientHintsMobileMismatch(CHROME_UA, undefined)).toBe(false);
+    expect(isClientHintsMobileMismatch(CHROME_UA, "invalid")).toBe(false);
+    expect(isClientHintsMobileMismatch(CHROME_UA, "?0")).toBe(false);
+    expect(isClientHintsMobileMismatch(CHROME_UA, " ?1 ")).toBe(true);
+    expect(
+      isClientHintsMobileMismatch(
+        "Mozilla/5.0 (Linux; Android 14) Chrome/121 Mobile",
+        "?1",
+      ),
+    ).toBe(false);
+    expect(
+      isClientHintsMobileMismatch(
+        "Mozilla/5.0 (iPad; CPU OS 17_0)",
+        "?0",
+      ),
+    ).toBe(true);
+  });
+
+  it("scores and preserves cross-layer request claims", () => {
+    const result = detectServerClient({
+      userAgent: CHROME_UA,
+      clientUserAgent: "different-agent",
+      acceptLanguage: "en-US,en;q=0.9",
+      clientLanguage: "sv-SE",
+      clientLanguages: ["sv-SE"],
+      clientPlatform: "Linux x86_64",
+      secChUaPlatform: '"Linux"',
+      secChUaMobile: "?1",
+    });
+
+    expect(result.isLegitClient).toBe(false);
+    expect(result.signals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "client-user-agent-mismatch", triggered: true }),
+        expect.objectContaining({ id: "client-language-mismatch", triggered: true }),
+        expect.objectContaining({ id: "client-platform-mismatch", triggered: true }),
+        expect.objectContaining({ id: "client-hints-mobile-mismatch", triggered: true }),
+      ]),
+    );
+    expect(result.context).toMatchObject({
+      clientUserAgent: "different-agent",
+      clientLanguage: "sv-SE",
+      clientLanguages: ["sv-SE"],
+      clientPlatform: "Linux x86_64",
+      secChUaPlatform: '"Linux"',
+      secChUaMobile: "?1",
+    });
   });
 
   it("optionally requires all Fetch Metadata headers for browser UAs", () => {

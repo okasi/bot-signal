@@ -38,6 +38,15 @@ export const INSTANT_RESULT_KEYS = [
   "isUserAgentDataMismatch",
   "isLanguageInconsistent",
   "isPluginMimeTypeInconsistent",
+  "isNativeFunctionTampered",
+  "isNavigatorIdentityInconsistent",
+  "isPluginArrayInconsistent",
+  "isIframeInconsistent",
+  "isErrorStackAutomation",
+  "isDefaultAutomationViewport",
+  "isSuspiciousHardware",
+  "isZeroConnectionRtt",
+  "isCanvasTampered",
   "isChromium",
   "isLegitClient",
 ] as const;
@@ -139,6 +148,11 @@ export async function runInstantDetectionAsync(
 ): Promise<
   InstantBrowserResult & {
     isShaderF16Supported: boolean | null;
+    isCdpDetected: boolean | null;
+    isNotificationPermissionInconsistent: boolean | null;
+    isHighEntropyUserAgentDataMismatch: boolean | null;
+    isWorkerInconsistent: boolean | null;
+    isCdpDetectedInWorker: boolean | null;
   }
 > {
   return page.evaluate(async () => {
@@ -157,6 +171,11 @@ export async function runMainWorldInstantDetectionAsync(
 ): Promise<
   InstantBrowserResult & {
     isShaderF16Supported: boolean | null;
+    isCdpDetected: boolean | null;
+    isNotificationPermissionInconsistent: boolean | null;
+    isHighEntropyUserAgentDataMismatch: boolean | null;
+    isWorkerInconsistent: boolean | null;
+    isCdpDetectedInWorker: boolean | null;
   }
 > {
   const resultAttribute = "data-main-world-detection-result";
@@ -205,6 +224,11 @@ export async function runMainWorldInstantDetectionAsync(
   const serialized = await page.locator("html").getAttribute(resultAttribute);
   const result = JSON.parse(serialized ?? "null") as InstantBrowserResult & {
     isShaderF16Supported: boolean | null;
+    isCdpDetected: boolean | null;
+    isNotificationPermissionInconsistent: boolean | null;
+    isHighEntropyUserAgentDataMismatch: boolean | null;
+    isWorkerInconsistent: boolean | null;
+    isCdpDetectedInWorker: boolean | null;
     error?: string;
   };
   if (result.error) {
@@ -437,6 +461,11 @@ interface HarnessWindow extends Window {
     ) => Promise<
       InstantBrowserResult & {
         isShaderF16Supported: boolean | null;
+        isCdpDetected: boolean | null;
+        isNotificationPermissionInconsistent: boolean | null;
+        isHighEntropyUserAgentDataMismatch: boolean | null;
+        isWorkerInconsistent: boolean | null;
+        isCdpDetectedInWorker: boolean | null;
       }
     >;
     createBehavioralClientDetector: (options: {

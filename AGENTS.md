@@ -8,7 +8,7 @@ TypeScript npm library with three detection layers:
 
 | Layer | Entry point | Location |
 |-------|-------------|----------|
-| Instant (browser) | `detectInstantClient` | `src/detectInstantClient.ts`, `src/checks.ts`, `src/webgpu.ts` |
+| Instant (browser) | `detectInstantClient` | `src/detectInstantClient.ts`, `src/checks.ts`, `src/asyncChecks.ts`, `src/webgpu.ts` |
 | Behavioral (browser) | `createBehavioralClientDetector` | `src/behavioral/` |
 | Server (Node) | `detectServerClientAsync` | `src/server/` |
 
@@ -33,6 +33,7 @@ src/
   userAgent.ts                # shared scripting User-Agent token parser
   detectInstantClient.ts      # instant detection entry
   checks.ts                   # high-value browser checks
+  asyncChecks.ts              # CDP, permissions, high-entropy UA-CH, worker checks
   webgpu.ts                   # shader-f16 + isChromiumBrowser
   behavioral/
     analysis.ts               # mouse/scroll/typing/touch heuristics

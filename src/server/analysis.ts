@@ -74,6 +74,117 @@ export function isClientHintsMismatch(
   );
 }
 
+/** HTTP User-Agent disagrees with the value observed by browser JavaScript. */
+export function isClientUserAgentMismatch(
+  userAgent: string | undefined,
+  clientUserAgent: string | undefined,
+): boolean {
+  return Boolean(
+    userAgent && clientUserAgent && userAgent.trim() !== clientUserAgent.trim(),
+  );
+}
+
+function firstAcceptedLanguage(acceptLanguage: string): string | undefined {
+  for (const part of acceptLanguage.split(",")) {
+    const [language, ...parameters] = part.trim().split(";");
+    const quality = parameters
+      .map((parameter) => parameter.trim().match(/^q=([01](?:\.\d+)?)$/i)?.[1])
+      .find((value) => value !== undefined);
+    if (language && (quality === undefined || Number(quality) > 0)) {
+      return language.toLowerCase();
+    }
+  }
+
+  return undefined;
+}
+
+/** Accept-Language's preferred value disagrees with Navigator language data. */
+export function isClientLanguageMismatch(
+  acceptLanguage: string | undefined,
+  clientLanguage: string | undefined,
+  clientLanguages: string[] | undefined,
+): boolean {
+  if (!acceptLanguage || (!clientLanguage && !clientLanguages?.length)) {
+    return false;
+  }
+
+  const preferred = firstAcceptedLanguage(acceptLanguage);
+  if (!preferred) {
+    return false;
+  }
+
+  return Boolean(
+    (clientLanguage && clientLanguage.toLowerCase() !== preferred) ||
+      (clientLanguages?.[0] && clientLanguages[0].toLowerCase() !== preferred),
+  );
+}
+
+function claimedPlatform(userAgent: string): string | undefined {
+  if (/Android/i.test(userAgent)) return "android";
+  if (/CrOS/i.test(userAgent)) return "chrome os";
+  if (/Windows/i.test(userAgent)) return "windows";
+  if (/(?:iPhone|iPad|iPod)/i.test(userAgent)) return "ios";
+  if (/(?:Macintosh|Mac OS X)/i.test(userAgent)) return "macos";
+  if (/Linux/i.test(userAgent)) return "linux";
+  return undefined;
+}
+
+function normalizePlatform(platform: string): string | undefined {
+  const value = platform.replace(/^"|"$/g, "").toLowerCase();
+  if (/android/.test(value)) return "android";
+  if (/cros|chrome os/.test(value)) return "chrome os";
+  if (/win/.test(value)) return "windows";
+  if (/iphone|ipad|ipod|ios/.test(value)) return "ios";
+  if (/mac/.test(value)) return "macos";
+  if (/linux/.test(value)) return "linux";
+  return undefined;
+}
+
+function platformMatches(
+  actual: string | undefined,
+  expected: string,
+): boolean {
+  return actual === undefined ||
+    actual === expected ||
+    (expected === "android" && actual === "linux") ||
+    (expected === "ios" && actual === "macos");
+}
+
+/** UA operating-system claim conflicts with JS platform or Client Hints. */
+export function isClientPlatformMismatch(
+  userAgent: string | undefined,
+  clientPlatform: string | undefined,
+  secChUaPlatform: string | undefined,
+): boolean {
+  if (!userAgent) {
+    return false;
+  }
+
+  const expected = claimedPlatform(userAgent);
+  if (!expected) {
+    return false;
+  }
+
+  const client = clientPlatform ? normalizePlatform(clientPlatform) : undefined;
+  const hint = secChUaPlatform
+    ? normalizePlatform(secChUaPlatform)
+    : undefined;
+  return !platformMatches(client, expected) || !platformMatches(hint, expected);
+}
+
+/** sec-ch-ua-mobile conflicts with the User-Agent's mobile claim. */
+export function isClientHintsMobileMismatch(
+  userAgent: string | undefined,
+  secChUaMobile: string | undefined,
+): boolean {
+  if (!userAgent || !secChUaMobile || !/^\?[01]$/.test(secChUaMobile.trim())) {
+    return false;
+  }
+
+  return (secChUaMobile.trim() === "?1") !==
+    /(?:Mobi|Android|iPhone|iPad)/i.test(userAgent);
+}
+
 /**
  * Browser UA missing one or more Fetch Metadata headers, when explicitly required.
  * @internal
@@ -122,6 +233,42 @@ export function buildServerSignals(
       "User-Agent version conflicts with sec-ch-ua",
       isClientHintsMismatch(context.userAgent, context.secChUa),
       0.65,
+      "high",
+    ),
+    createSignal(
+      "client-user-agent-mismatch",
+      "HTTP User-Agent conflicts with the browser-reported User-Agent",
+      isClientUserAgentMismatch(context.userAgent, context.clientUserAgent),
+      0.8,
+      "high",
+    ),
+    createSignal(
+      "client-language-mismatch",
+      "Accept-Language conflicts with browser-reported languages",
+      isClientLanguageMismatch(
+        context.acceptLanguage,
+        context.clientLanguage,
+        context.clientLanguages,
+      ),
+      0.45,
+      "medium",
+    ),
+    createSignal(
+      "client-platform-mismatch",
+      "User-Agent OS conflicts with browser or Client Hints platform",
+      isClientPlatformMismatch(
+        context.userAgent,
+        context.clientPlatform,
+        context.secChUaPlatform,
+      ),
+      0.55,
+      "high",
+    ),
+    createSignal(
+      "client-hints-mobile-mismatch",
+      "sec-ch-ua-mobile conflicts with the User-Agent",
+      isClientHintsMobileMismatch(context.userAgent, context.secChUaMobile),
+      0.55,
       "high",
     ),
     createSignal(

@@ -23,9 +23,21 @@ export interface ServerClientContext {
   /** Defaults to `ja3` */
   tlsFingerprintType?: "ja3" | "ja4";
   userAgent?: string;
+  /** User-Agent reported by browser JavaScript, for header/realm comparison */
+  clientUserAgent?: string;
   acceptLanguage?: string;
+  /** navigator.language reported by a client beacon */
+  clientLanguage?: string;
+  /** navigator.languages reported by a client beacon */
+  clientLanguages?: string[];
+  /** navigator.platform reported by a client beacon */
+  clientPlatform?: string;
   /** Chromium User-Agent Client Hints header (`sec-ch-ua`) */
   secChUa?: string;
+  /** Chromium `sec-ch-ua-platform` header */
+  secChUaPlatform?: string;
+  /** Chromium `sec-ch-ua-mobile` header (`?0` or `?1`) */
+  secChUaMobile?: string;
   secFetchSite?: string;
   secFetchMode?: string;
   secFetchDest?: string;
@@ -72,8 +84,14 @@ export interface ServerClientResult {
     tlsFingerprint?: string;
     tlsFingerprintType?: "ja3" | "ja4";
     userAgent?: string;
+    clientUserAgent?: string;
     acceptLanguage?: string;
+    clientLanguage?: string;
+    clientLanguages?: string[];
+    clientPlatform?: string;
     secChUa?: string;
+    secChUaPlatform?: string;
+    secChUaMobile?: string;
     secFetchSite?: string;
     secFetchMode?: string;
     secFetchDest?: string;

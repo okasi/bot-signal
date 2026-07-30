@@ -27,6 +27,15 @@ describe("patchright async instant detection", () => {
     const result = await runInstantDetectionAsync(page);
 
     expect(typeof result.isShaderF16Supported).not.toBe("undefined");
+    expect(typeof result.isCdpDetected).not.toBe("undefined");
+    expect(typeof result.isNotificationPermissionInconsistent).not.toBe(
+      "undefined",
+    );
+    expect(typeof result.isHighEntropyUserAgentDataMismatch).not.toBe(
+      "undefined",
+    );
+    expect(typeof result.isWorkerInconsistent).not.toBe("undefined");
+    expect(typeof result.isCdpDetectedInWorker).not.toBe("undefined");
     expect(typeof result.isLegitClient).toBe("boolean");
 
     await context.close();
