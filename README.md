@@ -266,7 +266,7 @@ applications can reuse those global names.
 | `isNativeFunctionTampered` | 0.8 | Native functions or Navigator getters were patched |
 | `isNavigatorIdentityInconsistent` | 0.65 | UA conflicts with Navigator vendor/platform/product/touch claims |
 | `isPluginArrayInconsistent` | 0.65 | Plugin/MIME arrays or entries have non-native prototypes |
-| `isIframeInconsistent` | 0.8 | Shared realm objects, injected `self.get`, `webdriver` drift, or **two or more** Navigator values differing in a fresh iframe |
+| `isIframeInconsistent` | 0.8 | Shared realm objects, injected `self.get`, `webdriver` drift, or **two or more** Navigator values differing in a fresh iframe (core count excluded) |
 | `isErrorStackAutomation` | 0.85 | Error stack contains an automation source marker |
 | `isEngineInconsistent` | 0.8 | `eval.toString().length` (33 in V8, 37 in SpiderMonkey/JSC) or SpiderMonkey-only globals contradict the browser the UA claims |
 | `isGpuPlatformMismatch` | 0.6 | WebGL renderer names Direct3D off Windows, Metal off Apple, or Adreno/Mali off Android |
@@ -283,23 +283,32 @@ applications can reuse those global names.
 | `isSuspiciousHardware` | 0.3 | `deviceMemory` off the power-of-two grid, or an impossible CPU count |
 | `isZeroConnectionRtt` | 0.2 | Zero Network Information RTT outside Android |
 | `isDefaultAutomationViewport` | 0.2 | 800×600 or 1280×720 screen/viewport default |
-| `isCanvasTampered` | 0.2 | Deterministic canvas pixel moves more than ±3 per channel on readback |
+| `isCanvasTampered` | 0.2 | Deterministic canvas pixel moves more than ±8 per channel on readback |
 | `isShaderF16Supported` | 0.3 | Async — missing WebGPU `shader-f16` on Chromium |
 | `isCdpDetected` | 0.25 | Async — CDP serialized an `Error` object (deduplicated with worker CDP) |
 | `isNotificationPermissionInconsistent` | 0.55 | Async — Notification and Permissions states contradict |
 | `isHighEntropyUserAgentDataMismatch` | 0.65 | Async — high-entropy UA-CH conflicts with the UA |
-| `isWorkerInconsistent` | 0.8 | Async — **two or more** worker Navigator values differ from the main realm |
+| `isWorkerInconsistent` | 0.8 | Async — **two or more** worker Navigator values differ from the main realm (core count excluded) |
 | `isCdpDetectedInWorker` | 0.25 | Async — CDP serialized an `Error` in a worker (deduplicated with page CDP) |
 | `isMissingMediaDevices` | 0.3 | Async — desktop Chromium enumerated no audio or video devices |
 
-The two cross-realm checks (`isIframeInconsistent`, `isWorkerInconsistent`)
-require **two or more** Navigator values to differ before they fire. Browser
-extensions — including the ones Chromium forks such as Opera, Brave, and Edge
-ship built in — routinely rewrite a single value in the top document without
-reaching workers or `about:blank` frames, while spoofing frameworks install a
-whole persona. Realm-identity tampering and `navigator.webdriver` drift still
-fire on their own, and the absence of `window.chrome` inside a fresh frame is
-ignored entirely because Chromium forks and Electron do that legitimately.
+**Browser fingerprint protection is not automation.** The two cross-realm
+checks (`isIframeInconsistent`, `isWorkerInconsistent`) require **two or more**
+Navigator values to differ before they fire, because extensions — including the
+ones Chromium forks ship built in — rewrite a single value in the top document
+without reaching workers or `about:blank` frames, while spoofing frameworks
+install a whole persona. `navigator.hardwareConcurrency` is excluded from that
+comparison outright: Opera 133 reports 2 cores to the page while its workers and
+frames report the machine's real 10. Realm-identity tampering and
+`navigator.webdriver` drift still fire on their own, and a missing
+`window.chrome` inside a fresh frame is ignored entirely because Chromium forks
+and Electron do that legitimately.
+
+For the same reason `isMediaQueryInconsistent` compares only `resolution`
+against `devicePixelRatio` — Opera reports `screen.colorDepth` 24 on a 10-bit
+display, so no mapping onto the CSS `color` query survives contact with a stock
+browser — and `isCanvasTampered` allows ±8 per channel, clearing both
+colour-managed readback and injected per-origin noise.
 
 Signals weighted below the 0.5 threshold are soft: individually they flag but
 don't block, so common false-positive cases (in-app browsers, kiosk fullscreen,

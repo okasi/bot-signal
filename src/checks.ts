@@ -26,11 +26,13 @@ const ALLOWED_DEVICE_MEMORY = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64];
 
 /**
  * How far a canvas channel may drift before it counts as rewritten. Colour
- * management on wide-gamut displays moves values by a step; the noise that
- * fingerprint-blocking extensions inject stays in the same range, and neither
- * belongs to a bot.
+ * management on wide-gamut displays moves values by a step, and the per-origin
+ * noise that browser fingerprint protection injects — Opera, Brave, and
+ * privacy extensions all do it, intermittently — perturbs the low bits. Neither
+ * belongs to a bot, so the band is wide enough to clear both while a stubbed or
+ * constant-returning canvas still lands far outside it.
  */
-const CANVAS_CHANNEL_TOLERANCE = 3;
+const CANVAS_CHANNEL_TOLERANCE = 8;
 
 /** Colour depths real display pipelines report; anything else is fabricated. */
 const ALLOWED_COLOR_DEPTHS = [8, 15, 16, 24, 30, 32, 48];
@@ -694,7 +696,6 @@ export interface RealmNavigatorSnapshot {
   language?: string;
   languages?: readonly string[];
   platform?: string;
-  hardwareConcurrency?: number;
 }
 
 /**
@@ -729,13 +730,13 @@ export function countNavigatorDrift(
   ) {
     drift += 1;
   }
-  if (
-    typeof main.hardwareConcurrency === "number" &&
-    typeof other.hardwareConcurrency === "number" &&
-    main.hardwareConcurrency !== other.hardwareConcurrency
-  ) {
-    drift += 1;
-  }
+  // `hardwareConcurrency` is deliberately left out. Browser fingerprint
+  // protection reduces it in the top document and nowhere else — Opera 133
+  // reports 2 cores to the page while its workers and `about:blank` frames
+  // report the machine's real 10 — so cross-realm drift there says nothing
+  // about automation. Patched core counts are still caught by
+  // isNativeFunctionTampered and isSuspiciousHardware.
+
   // `language` and `languages` move together, so they count once between them.
   const mainLanguages = main.languages;
   const otherLanguages = other.languages;
@@ -969,6 +970,11 @@ export function isMediaQueryInconsistent(context: ExtendedWindow): boolean {
       return null;
     }
   };
+
+  // Only `resolution` is compared. `screen.colorDepth` against the CSS `color`
+  // query looked equivalent but is not: Opera 133 on a 10-bit display reports
+  // colorDepth 24 while CSS reports 10 bits per channel, so any mapping
+  // between them flags a stock browser.
 
   // Bail out on engines that do not support resolution queries at all.
   if (matches("(min-resolution: 0dppx)") !== true) {

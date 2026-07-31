@@ -770,16 +770,26 @@ describe("plugin, iframe, stack, and soft consistency checks", () => {
       { userAgent: "different" },
       { platform: "Linux" },
       { languages: ["sv-SE"] },
-      { hardwareConcurrency: 99 },
     ]) {
       expect(isIframeInconsistent(iframeContext(overrides).context)).toBe(false);
     }
 
-    // Two or more together are a spoofed persona.
+    // Opera reduces hardwareConcurrency in the top document only, so realm
+    // drift there never counts — not even alongside another difference.
+    expect(
+      isIframeInconsistent(iframeContext({ hardwareConcurrency: 99 }).context),
+    ).toBe(false);
+    expect(
+      isIframeInconsistent(
+        iframeContext({ hardwareConcurrency: 99, platform: "Linux" }).context,
+      ),
+    ).toBe(false);
+
+    // Two or more of the remaining values together are a spoofed persona.
     for (const overrides of [
       { userAgent: "different", platform: "Linux" },
-      { languages: ["sv-SE"], hardwareConcurrency: 99 },
-      { platform: "Linux", hardwareConcurrency: 99 },
+      { languages: ["sv-SE"], platform: "Linux" },
+      { userAgent: "different", languages: ["sv-SE"] },
     ]) {
       expect(isIframeInconsistent(iframeContext(overrides).context)).toBe(true);
     }
@@ -950,14 +960,14 @@ describe("plugin, iframe, stack, and soft consistency checks", () => {
     };
 
     expect(isCanvasTampered(withCanvas([17, 34, 51, 255]))).toBe(false);
-    // Colour management and privacy noise stay inside the tolerance.
+    // Colour management and fingerprint-protection noise stay inside the band.
     expect(isCanvasTampered(withCanvas([18, 35, 52, 254]))).toBe(false);
-    expect(isCanvasTampered(withCanvas([20, 37, 54, 252]))).toBe(false);
-    // A rewritten readback moves further than any display pipeline does.
-    expect(isCanvasTampered(withCanvas([21, 34, 51, 255]))).toBe(true);
-    expect(isCanvasTampered(withCanvas([17, 38, 51, 255]))).toBe(true);
-    expect(isCanvasTampered(withCanvas([17, 34, 55, 255]))).toBe(true);
-    expect(isCanvasTampered(withCanvas([17, 34, 51, 251]))).toBe(true);
+    expect(isCanvasTampered(withCanvas([25, 42, 59, 247]))).toBe(false);
+    // A rewritten readback lands far outside it.
+    expect(isCanvasTampered(withCanvas([26, 34, 51, 255]))).toBe(true);
+    expect(isCanvasTampered(withCanvas([17, 43, 51, 255]))).toBe(true);
+    expect(isCanvasTampered(withCanvas([17, 34, 60, 255]))).toBe(true);
+    expect(isCanvasTampered(withCanvas([17, 34, 51, 246]))).toBe(true);
     expect(isCanvasTampered(withCanvas([0, 0, 0, 0]))).toBe(true);
     expect(isCanvasTampered(withCanvas(null))).toBe(false);
     const blocked = createContext();
@@ -1363,7 +1373,6 @@ describe("async realm and browser checks", () => {
   it.each([
     { userAgent: "different", platform: "Linux" },
     { language: "sv-SE", languages: ["sv-SE"], platform: "Linux" },
-    { platform: "Linux", hardwareConcurrency: 99 },
     { userAgent: "different", languages: ["sv-SE"] },
   ])("detects worker Navigator mismatch %#", async (override) => {
     const { context, WorkerMock } = createWorkerContext();
@@ -1381,8 +1390,10 @@ describe("async realm and browser checks", () => {
     { userAgent: "different" },
     { language: "sv-SE", languages: ["sv-SE"] },
     { platform: "Linux" },
+    // Opera reports a reduced core count to the document but not to workers.
     { hardwareConcurrency: 99 },
-  ])("tolerates a single worker Navigator difference %#", async (override) => {
+    { hardwareConcurrency: 99, platform: "Linux" },
+  ])("tolerates worker differences a stock browser produces %#", async (override) => {
     const { context, WorkerMock } = createWorkerContext();
     const resultPromise = checkWorkerConsistency(context);
     WorkerMock.instances.at(-1)!.onmessage?.({
@@ -1944,5 +1955,97 @@ describe("media device enumeration", () => {
     await expect(
       checkMediaDevices(withMediaDevices(new Error("blocked"))),
     ).resolves.toBe(null);
+  });
+});
+
+/**
+ * Opera 133 on macOS, captured from a real session. Its fingerprint
+ * protection reports 2 CPU cores to the document while workers and
+ * `about:blank` frames see the machine's real 10, and it reports
+ * `screen.colorDepth` 24 on a 10-bit display. None of that is automation.
+ */
+describe("Opera fingerprint-protection regression", () => {
+  const OPERA_UA =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 OPR/133.0.0.0";
+  const REAL_CORES = 10;
+  const REPORTED_CORES = 2;
+
+  function operaContext() {
+    const context = createContext({
+      devicePixelRatio: 2,
+      matchMedia: ((query: string) => ({
+        // Opera answers colour queries with the panel's real 10 bits per
+        // channel even though screen.colorDepth says 24.
+        matches: /\(min-color: (?:9|10)\)|\(max-color: 1[01]\)/.test(query)
+          ? /: (?:10|11)\)/.test(query)
+          : true,
+      })) as ExtendedWindow["matchMedia"],
+      navigator: {
+        userAgent: OPERA_UA,
+        platform: "MacIntel",
+        language: "en-GB",
+        languages: ["en-GB", "en"],
+        hardwareConcurrency: REPORTED_CORES,
+      } as ExtendedNavigator,
+      screen: {
+        width: 1800,
+        height: 1169,
+        availWidth: 1800,
+        availHeight: 1125,
+        colorDepth: 24,
+        pixelDepth: 24,
+      } as Screen,
+    } as Partial<ExtendedWindow>);
+    return context;
+  }
+
+  it("does not flag the iframe realm over a reduced core count", () => {
+    const context = operaContext();
+    const child = {
+      ...context.navigator,
+      hardwareConcurrency: REAL_CORES,
+    } as Navigator;
+    context.document = {
+      documentElement: { appendChild: vi.fn() },
+      createElement: vi.fn().mockReturnValue({
+        style: {},
+        contentWindow: { navigator: child, chrome: {} },
+        remove: vi.fn(),
+      }),
+    } as unknown as ExtendedWindow["document"];
+
+    expect(isIframeInconsistent(context)).toBe(false);
+  });
+
+  it("does not flag the worker realm over a reduced core count", async () => {
+    const { context, WorkerMock } = createWorkerContext();
+    Object.assign(context.navigator, {
+      userAgent: OPERA_UA,
+      hardwareConcurrency: REPORTED_CORES,
+    });
+
+    const resultPromise = checkWorkerConsistency(context);
+    WorkerMock.instances.at(-1)!.onmessage?.({
+      data: {
+        userAgent: context.navigator.userAgent,
+        language: context.navigator.language,
+        languages: Array.from(context.navigator.languages),
+        platform: context.navigator.platform,
+        hardwareConcurrency: REAL_CORES,
+        cdpDetected: false,
+      },
+    } as MessageEvent);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      isWorkerInconsistent: false,
+    });
+  });
+
+  it("does not flag media queries over a 24-bit colorDepth on a 10-bit panel", () => {
+    expect(isMediaQueryInconsistent(operaContext())).toBe(false);
+  });
+
+  it("does not flag the screen geometry it reports", () => {
+    expect(isScreenGeometryInconsistent(operaContext())).toBe(false);
   });
 });
