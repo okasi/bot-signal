@@ -47,6 +47,11 @@ export const INSTANT_RESULT_KEYS = [
   "isSuspiciousHardware",
   "isZeroConnectionRtt",
   "isCanvasTampered",
+  "isEngineInconsistent",
+  "isGpuPlatformMismatch",
+  "isMediaQueryInconsistent",
+  "isScreenGeometryInconsistent",
+  "isMissingProprietaryCodecs",
   "isChromium",
   "isLegitClient",
 ] as const;

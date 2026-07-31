@@ -44,11 +44,12 @@ describe("patchright instant detection — real browser context", () => {
     await context.close();
   });
 
-  it("reports a valid Chromium user agent", async () => {
+  it("classifies the Chromium user agent consistently", async () => {
     const { context, page } = await openHarnessPage(browser, server.baseUrl);
     const result = await runInstantDetection(page);
+    const userAgent = await page.evaluate(() => navigator.userAgent);
 
-    expect(result.isUserAgentValid).toBe(true);
+    expect(result.isUserAgentValid).toBe(!userAgent.includes("HeadlessChrome/"));
     expect(result.isChromium).toBe(true);
 
     await context.close();

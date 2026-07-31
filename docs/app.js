@@ -60,14 +60,14 @@ for (const button of document.querySelectorAll("[data-copy-target]")) {
 
 const CHECKS = [
   ["isWebDriver", "navigator.webdriver is set — the standard automation beacon", "bad"],
-  ["isAutomationArtifacts", "Automation framework/runtime leftovers on window/document", "bad"],
-  ["isPlaywright", "Attribution detail: Playwright binding or init-script artifact", "info"],
-  ["isPuppeteer", "Attribution detail: Puppeteer evaluation artifact", "info"],
-  ["isChromeDriver", "Attribution detail: ChromeDriver artifact", "info"],
+  ["isAutomationArtifacts", "Soft umbrella for framework, legacy, or embedded-runtime leftovers", "bad"],
+  ["isPlaywright", "Playwright binding, init-script, or exposed-function artifact", "bad"],
+  ["isPuppeteer", "Puppeteer binding, evaluation, or exposed-function artifact", "bad"],
+  ["isChromeDriver", "Distinctive ChromeDriver artifact", "bad"],
   ["isSuspiciousWebDriverDescriptor", "webdriver property was patched or deleted by a stealth layer", "bad"],
   ["isHeadless", "HeadlessChrome user agent or webdriver flag", "bad"],
   ["isSelenium", "Selenium markers on document", "bad"],
-  ["isPhantomJS", "PhantomJS globals on window", "bad"],
+  ["isPhantomJS", "PhantomJS-specific callPhantom or _phantom global", "bad"],
   ["isNightmare", "Nightmare.js marker present", "bad"],
   ["isDomAutomation", "Chrome DOM-automation controller globals", "bad"],
   ["isMissingChromeObject", "Chromium without the browser-provided window.chrome object", "bad"],
@@ -77,17 +77,22 @@ const CHECKS = [
   ["isNativeFunctionTampered", "Native functions or Navigator getters were patched", "bad"],
   ["isNavigatorIdentityInconsistent", "Navigator vendor, platform, product, or touch claims conflict with the UA", "bad"],
   ["isPluginArrayInconsistent", "Plugin or MIME arrays use non-native prototypes", "bad"],
-  ["isIframeInconsistent", "Navigator values differ in a fresh same-origin iframe", "bad"],
+  ["isIframeInconsistent", "Realm identity, timers, injected self.get, Chromium state, or Navigator values differ in a fresh iframe", "bad"],
   ["isErrorStackAutomation", "Error stack contains an automation source marker", "bad"],
+  ["isEngineInconsistent", "JavaScript engine identity conflicts with the browser the User-Agent claims", "bad"],
+  ["isGpuPlatformMismatch", "WebGL renderer names a graphics backend the claimed platform cannot run", "bad"],
+  ["isMediaQueryInconsistent", "CSS media queries contradict the reported screen or pointer values", "bad"],
+  ["isScreenGeometryInconsistent", "Screen reports impossible geometry or colour depth", "bad"],
+  ["isMissingProprietaryCodecs", "Chromium build without H.264 — an unbranded automation build", "bad"],
   ["isLanguageInconsistent", "navigator.language conflicts with navigator.languages", "bad"],
   ["isPluginMimeTypeInconsistent", "Plugin and MIME-type arrays disagree", "bad"],
   ["isSuspiciousResolution", "Screen smaller than any real device (136×170)", "bad"],
-  ["isSuspiciousWindowDimensions", "No window chrome and parked exactly at the screen origin", "bad"],
+  ["isSuspiciousWindowDimensions", "Zero outer size, or no window chrome at the screen origin", "bad"],
   ["isDefaultAutomationViewport", "Screen or viewport matches an untouched automation default", "bad"],
   ["isSuspiciousHardware", "CPU and device-memory values are implausible or contradictory", "bad"],
   ["isZeroConnectionRtt", "Network Information reports zero RTT outside Android", "bad"],
   ["isCanvasTampered", "A deterministic canvas pixel changed on readback", "bad"],
-  ["isUserAgentValid", "User agent has the Mozilla prefix and no scripting-client token", "good"],
+  ["isUserAgentValid", "User agent has the Mozilla prefix and no known bot, scripting, or automation token", "good"],
   ["isWebGLSupported", "A WebGL context can be created (headless Chromium 139+ has none)", "good"],
   ["isModern", "Chrome 121+ / Firefox 128+ / Safari 16.4+", "good"],
   ["isShaderF16Supported", "WebGPU shader-f16 feature (Chromium only, async run)", "shader"],
@@ -96,6 +101,7 @@ const CHECKS = [
   ["isHighEntropyUserAgentDataMismatch", "High-entropy Client Hints conflict with the UA (async run)", "async-bad"],
   ["isWorkerInconsistent", "Worker Navigator values differ from the main realm (async run)", "async-bad"],
   ["isCdpDetectedInWorker", "CDP serialized an Error inside a worker (async run)", "async-bad"],
+  ["isMissingMediaDevices", "Desktop Chromium enumerated no audio or video devices (async run)", "async-bad"],
   ["isChromium", "Chromium-based browser — decides which checks apply", "info"],
 ];
 
@@ -110,6 +116,10 @@ function softSignalIds(result) {
     if (signal.triggered && signal.weight < INSTANT_THRESHOLD) {
       soft.add(signal.id);
     }
+  }
+  if (soft.has("isCdpDetected") || soft.has("isCdpDetectedInWorker")) {
+    soft.add("isCdpDetected");
+    soft.add("isCdpDetectedInWorker");
   }
   return soft;
 }
@@ -292,7 +302,7 @@ function runInstant(detail = "") {
 }
 
 async function runAsync() {
-  setBanner("instant", "pending", "Running async checks…", "Requesting a WebGPU adapter");
+  setBanner("instant", "pending", "Running async checks…", "Checking WebGPU, CDP, permissions, Client Hints, and workers");
   const result = await detectInstantClientAsync(window);
   const shader =
     result.isShaderF16Supported === null
@@ -648,12 +658,40 @@ const SERVER_SIGNALS = [
     context: { userAgent: "curl/8.5.0" },
   },
   {
+    id: "bot-user-agent",
+    weight: 0.9,
+    confidence: "high",
+    desc: "User-Agent claims a known bot, HTTP, or automation client",
+    context: { userAgent: "Mozilla/5.0 Googlebot/2.1" },
+  },
+  {
     id: "known-suspicious-tls",
     weight: 0.55,
     confidence: "high",
     desc: "JA3/JA4 matches a caller-supplied suspicious value",
     context: { tlsFingerprint: "custom-suspicious-fingerprint" },
     options: { suspiciousTlsFingerprints: ["custom-suspicious-fingerprint"] },
+  },
+  {
+    id: "tls-user-agent-mismatch",
+    weight: 0.5,
+    confidence: "high",
+    desc: "A recognized TLS client family conflicts with the User-Agent",
+    context: {
+      tlsFingerprint: "recognized-scripting-client-fingerprint",
+      userAgent: SERVER_CHROME_UA,
+    },
+    options: {
+      suspiciousTlsFingerprintEntries: [
+        {
+          id: "trusted-scripting-client",
+          label: "Trusted scripting-client fingerprint",
+          hash: "recognized-scripting-client-fingerprint",
+          families: ["scripting"],
+          confidence: "high",
+        },
+      ],
+    },
   },
   {
     id: "timezone-mismatch",
@@ -668,6 +706,42 @@ const SERVER_SIGNALS = [
     confidence: "high",
     desc: "Chromium User-Agent version conflicts with sec-ch-ua",
     context: { userAgent: SERVER_CHROME_UA, secChUa: '\"Chromium\";v=\"149\"' },
+  },
+  {
+    id: "client-user-agent-mismatch",
+    weight: 0.8,
+    confidence: "high",
+    desc: "HTTP and browser-reported User-Agents conflict",
+    context: { userAgent: SERVER_CHROME_UA, clientUserAgent: "different-agent" },
+  },
+  {
+    id: "client-language-mismatch",
+    weight: 0.45,
+    confidence: "medium",
+    desc: "Accept-Language conflicts with Navigator languages",
+    context: {
+      acceptLanguage: "en-US,en;q=0.9",
+      clientLanguage: "sv-SE",
+      clientLanguages: ["sv-SE"],
+    },
+  },
+  {
+    id: "client-platform-mismatch",
+    weight: 0.55,
+    confidence: "high",
+    desc: "User-Agent OS conflicts with browser or Client Hints platform",
+    context: {
+      userAgent: SERVER_CHROME_UA,
+      clientPlatform: "Linux x86_64",
+      secChUaPlatform: '"Linux"',
+    },
+  },
+  {
+    id: "client-hints-mobile-mismatch",
+    weight: 0.55,
+    confidence: "high",
+    desc: "sec-ch-ua-mobile conflicts with the User-Agent",
+    context: { userAgent: SERVER_CHROME_UA, secChUaMobile: "?1" },
   },
   {
     id: "missing-browser-headers",
@@ -761,10 +835,6 @@ function activeServerSignalIds() {
     for (const implied of signal.implies ?? []) ids.add(implied);
   }
 
-  if (ids.has("known-suspicious-tls") && ids.has("datacenter-browser-mismatch")) {
-    ids.add("tls-user-agent-mismatch");
-  }
-
   if (ids.has("known-suspicious-tls") || ids.has("tls-user-agent-mismatch")) {
     ids.delete("missing-tls-fingerprint");
   }
@@ -804,8 +874,8 @@ function renderServer() {
     row.querySelector(".switch").setAttribute("aria-checked", String(on));
   }
 
-  // representative context JSON — presets carry a coherent story of their
-  // own; custom toggling composes self-contained signal fragments
+  // Presets carry a coherent story. Custom mode merges illustrative fragments,
+  // while its toggles intentionally score independently.
   const preset = $("preset-select").value;
   const context = preset in PRESET_CONTEXTS ? { ...PRESET_CONTEXTS[preset] } : {};
   const options = {};
@@ -824,7 +894,7 @@ function renderServer() {
     ? `\n\n// options\n${JSON.stringify(options, null, 2)}`
     : "";
   $("server-json").textContent =
-    `// context\n${JSON.stringify(context, null, 2)}${optionsJson}\n\n// result\n${JSON.stringify(result, null, 2)}`;
+    `// illustrative context\n${JSON.stringify(context, null, 2)}${optionsJson}\n\n// independently simulated result\n${JSON.stringify(result, null, 2)}`;
 }
 
 function buildServerToggles() {
@@ -855,6 +925,9 @@ function buildServerToggles() {
       }
       if (serverState.get(signal.id) && signal.id === "tls-user-agent-mismatch") {
         serverState.set("known-suspicious-tls", true);
+      }
+      if (!serverState.get(signal.id) && signal.id === "known-suspicious-tls") {
+        serverState.set("tls-user-agent-mismatch", false);
       }
       $("preset-select").value = "custom";
       renderServer();

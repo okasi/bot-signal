@@ -10,6 +10,7 @@ describe("public entry points", () => {
       detectInstantClientAsync: expect.any(Function),
       isHuman: expect.any(Function),
       isHumanAsync: expect.any(Function),
+      isBotUserAgent: expect.any(Function),
       buildInstantSignals: expect.any(Function),
       aggregateInstantSuspicionScore: expect.any(Function),
       resolveInstantConfidence: expect.any(Function),
@@ -29,6 +30,11 @@ describe("public entry points", () => {
       preloadIpLists: expect.any(Function),
       isValidJa3Hash: expect.any(Function),
       normalizeTlsFingerprint: expect.any(Function),
+      isBotUserAgent: expect.any(Function),
+      isClientUserAgentMismatch: expect.any(Function),
+      isClientLanguageMismatch: expect.any(Function),
+      isClientPlatformMismatch: expect.any(Function),
+      isClientHintsMobileMismatch: expect.any(Function),
     });
     expect("detectInstantClient" in serverApi).toBe(false);
   });

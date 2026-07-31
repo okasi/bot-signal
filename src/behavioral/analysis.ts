@@ -41,6 +41,7 @@ const SCROLL_LINEAR_WINDOW = 8;
 
 /** Minimum samples required before we consider a trace for linearity. */
 const MIN_MOUSE_FOR_LINEAR = 6;
+const MIN_MOUSE_FOR_ZERO_DELTAS = 51;
 const MIN_SCROLL_FOR_LINEAR = 4;
 const MIN_KEYS_FOR_LINEAR = 5;
 
@@ -169,6 +170,14 @@ export function hasLinearMouseMovement(mouseMoves: MouseSample[]): boolean {
   }
 
   return anyLinearWindow(mouseMoves, MOUSE_LINEAR_WINDOW, isLinearMouseSegment);
+}
+
+/** More than 50 mouse events all report zero browser-provided movement deltas. */
+export function hasZeroMouseMovementDeltas(mouseMoves: MouseSample[]): boolean {
+  return mouseMoves.length >= MIN_MOUSE_FOR_ZERO_DELTAS &&
+    mouseMoves.every(
+      (event) => event.movementX === 0 && event.movementY === 0,
+    );
 }
 
 /**
@@ -343,6 +352,13 @@ export function buildBehavioralSignals(samples: BehavioralSamples): BehavioralSi
       "Mouse path is unusually straight with uniform speed",
       hasLinearMouseMovement(samples.mouseMoves),
       0.25,
+      "medium",
+    ),
+    createSignal(
+      "zero-mouse-movement-deltas",
+      "More than 50 mouse events all reported zero movement deltas",
+      hasZeroMouseMovementDeltas(samples.mouseMoves),
+      0.3,
       "medium",
     ),
     createSignal(

@@ -18,7 +18,7 @@ export type AutomationKind =
 export interface AutomationAssessment {
   /** Whether automation evidence was found; independent of enforcement threshold. */
   isAutomated: boolean;
-  /** Most likely automation family, or `unknown` when no identity evidence was found. */
+  /** Most likely supported family, or `unknown` for unattributed/unsupported identities. */
   kind: AutomationKind;
   confidence: AutomationConfidence;
   /** Human-readable facts used for attribution (not every scoring signal). */

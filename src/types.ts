@@ -45,6 +45,7 @@ export interface ExtendedWindow extends Omit<Window, "document" | "navigator"> {
   Worker?: typeof Worker;
   console?: Console;
   callPhantom?: unknown;
+  callSelenium?: unknown;
   _phantom?: unknown;
   __nightmare?: unknown;
   __playwright?: unknown;
@@ -131,6 +132,11 @@ export interface InstantClientResult {
   isSuspiciousHardware: boolean;
   isZeroConnectionRtt: boolean;
   isCanvasTampered: boolean;
+  isEngineInconsistent: boolean;
+  isGpuPlatformMismatch: boolean;
+  isMediaQueryInconsistent: boolean;
+  isScreenGeometryInconsistent: boolean;
+  isMissingProprietaryCodecs: boolean;
   isChromium: boolean;
   /**
    * 0 (human) to 1 (definitely automated), aggregated as `1 - Π(1 - weightᵢ)`
@@ -145,6 +151,35 @@ export interface InstantClientResult {
   automation: AutomationAssessment;
 }
 
+type InstantResultMetadata =
+  | "isChromium"
+  | "suspicionScore"
+  | "confidence"
+  | "signals"
+  | "isLegitClient"
+  | "automation";
+
+type ExtendedInstantCheck =
+  | "isNativeFunctionTampered"
+  | "isNavigatorIdentityInconsistent"
+  | "isPluginArrayInconsistent"
+  | "isIframeInconsistent"
+  | "isErrorStackAutomation"
+  | "isDefaultAutomationViewport"
+  | "isSuspiciousHardware"
+  | "isZeroConnectionRtt"
+  | "isCanvasTampered"
+  | "isEngineInconsistent"
+  | "isGpuPlatformMismatch"
+  | "isMediaQueryInconsistent"
+  | "isScreenGeometryInconsistent"
+  | "isMissingProprietaryCodecs";
+
+/** Boolean inputs accepted by {@link buildInstantSignals}. */
+export type InstantSignalChecks =
+  Omit<InstantClientResult, InstantResultMetadata | ExtendedInstantCheck> &
+  Partial<Pick<InstantClientResult, ExtendedInstantCheck>>;
+
 export interface InstantClientAsyncResult extends InstantClientResult {
   /** `true`/`false` on Chromium; `null` when the check does not apply */
   isShaderF16Supported: boolean | null;
@@ -158,6 +193,8 @@ export interface InstantClientAsyncResult extends InstantClientResult {
   isWorkerInconsistent: boolean | null;
   /** CDP serialized a diagnostic object inside a worker; `null` when unavailable */
   isCdpDetectedInWorker: boolean | null;
+  /** Desktop Chromium enumerated no media devices at all; `null` when unavailable */
+  isMissingMediaDevices: boolean | null;
 }
 
 /** Async-only values accepted by {@link buildInstantSignals}. */
@@ -169,4 +206,5 @@ export type InstantAsyncChecks = Pick<
   | "isHighEntropyUserAgentDataMismatch"
   | "isWorkerInconsistent"
   | "isCdpDetectedInWorker"
+  | "isMissingMediaDevices"
 >;

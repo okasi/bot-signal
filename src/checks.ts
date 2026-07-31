@@ -8,12 +8,41 @@ const SOFTWARE_RENDERER_PATTERNS = [
   /software renderer/i,
 ];
 
+/**
+ * GPU strings that only exist on one platform. A renderer that names a
+ * graphics backend the claimed OS cannot run is a spoofed WebGL identity.
+ */
+const GPU_PLATFORM_RULES: Array<{ renderer: RegExp; platform: RegExp }> = [
+  { renderer: /Direct3D|\bD3D(?:9|11|12)\b/i, platform: /Windows|Win64|WOW64/i },
+  {
+    renderer: /Metal Renderer|Apple GPU|Apple M\d/i,
+    platform: /Macintosh|Mac OS X|iPhone|iPad|iPod/i,
+  },
+  { renderer: /Adreno|Mali-|PowerVR Rogue/i, platform: /Android/i },
+];
+
+/** `navigator.deviceMemory` is quantised to powers of two by every engine. */
+const ALLOWED_DEVICE_MEMORY = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64];
+
+/** Colour depths real display pipelines report; anything else is fabricated. */
+const ALLOWED_COLOR_DEPTHS = [8, 15, 16, 24, 30, 32, 48];
+
+/** Navigator properties every engine exposes as prototype accessors. */
+const NAVIGATOR_ACCESSOR_PROPERTIES = [
+  "webdriver",
+  "hardwareConcurrency",
+  "languages",
+  "plugins",
+] as const;
+
 const PLAYWRIGHT_KEY_PATTERNS = [
   /^__playwright(?:__binding__)?$/,
   /^__pw(?:InitScripts|_manual)$/,
 ];
 
-const PUPPETEER_KEY_PATTERNS = [/^__puppeteer_evaluation_script__$/];
+const PUPPETEER_KEY_PATTERNS = [
+  /^__puppeteer_evaluation_script__$/,
+];
 
 const CHROMEDRIVER_KEY_PATTERNS = [
   /^cdc_[a-zA-Z0-9]{10,}_(?:Array|JSON|Object|Promise|Proxy|Symbol|Window)$/,
@@ -41,6 +70,17 @@ const LEGACY_AUTOMATION_KEY_PATTERNS = [
 ];
 
 const LEGACY_DOCUMENT_KEY_PATTERNS = [
+  /^driver-evaluate$/,
+  /^webdriver-evaluate$/,
+  /^webdriverCommand$/,
+  /^webdriver-evaluate-response$/,
+  /^webdriver$/,
+  /^_Selenium_IDE_Recorder$/,
+  /^_selenium$/,
+  /^calledSelenium$/,
+  /^__webdriverFunc$/,
+  /^__lastWatir(?:Alert|Confirm|Prompt)$/,
+  /^ChromeDriverw$/,
   /^__selenium_evaluate$/,
   /^selenium-evaluate$/,
   /^__selenium_unwrapped$/,
@@ -54,7 +94,11 @@ const LEGACY_DOCUMENT_KEY_PATTERNS = [
   /^__\$webdriverAsyncExecutor$/,
 ];
 
-const AUTOMATION_STACK_PATTERN = /(?:pptr:|UtilityScript\.|Puppeteer|PhantomJS)/i;
+const AUTOMATION_STACK_PATTERN = /(?:pptr:|UtilityScript\.)/i;
+const PLAYWRIGHT_BINDING_SOURCE_PATTERN =
+  /exposeBindingHandle supports a single argument/;
+const PUPPETEER_BINDING_SOURCE_PATTERN = /This is the Puppeteer binding/;
+const SANNYSOFT_DOCUMENT_CACHE_KEY_PATTERN = /\$[a-z]dc_/;
 
 function hasMatchingKey(target: object, patterns: RegExp[]): boolean {
   for (const key of Object.getOwnPropertyNames(target)) {
@@ -62,6 +106,121 @@ function hasMatchingKey(target: object, patterns: RegExp[]): boolean {
       if (pattern.test(key)) {
         return true;
       }
+    }
+  }
+
+  return false;
+}
+
+function hasMatchingTruthyKey(target: object, patterns: RegExp[]): boolean {
+  for (const key of Object.getOwnPropertyNames(target)) {
+    if (
+      patterns.some((pattern) => pattern.test(key)) &&
+      Boolean(getPropertySafely(target, key))
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/** Reads a potentially page-defined property without letting its getter abort detection. */
+export function getPropertySafely(
+  target: object,
+  property: PropertyKey,
+): unknown {
+  try {
+    return Reflect.get(target, property);
+  } catch {
+    return undefined;
+  }
+}
+
+function hasFunctionSourceMarker(
+  context: ExtendedWindow,
+  pattern: RegExp,
+): boolean {
+  let toString: unknown;
+  try {
+    toString =
+      context.Function?.prototype.toString ?? Function.prototype.toString;
+  } catch {
+    return false;
+  }
+  if (typeof toString !== "function") {
+    return false;
+  }
+  for (const key of Object.getOwnPropertyNames(context)) {
+    const value = Object.getOwnPropertyDescriptor(context, key)?.value;
+    if (typeof value === "function") {
+      try {
+        if (pattern.test(toString.call(value))) {
+          return true;
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  return false;
+}
+
+function hasInstalledExposedFunction(target: object): boolean {
+  return Object.getOwnPropertyNames(target).some((key) => {
+    const value = Object.getOwnPropertyDescriptor(target, key)?.value as
+      | (Function & { __installed?: unknown })
+      | undefined;
+    if (typeof value !== "function") {
+      return false;
+    }
+    try {
+      return value.__installed === true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function hasPrefixedFunction(target: object, pattern: RegExp): boolean {
+  return Object.getOwnPropertyNames(target).some((key) =>
+    pattern.test(key) &&
+    typeof Object.getOwnPropertyDescriptor(target, key)?.value === "function"
+  );
+}
+
+function hasAutomationDocumentAttribute(context: ExtendedWindow): boolean {
+  try {
+    const root = context.document.documentElement;
+    return Boolean(
+      root?.hasAttribute &&
+        ["selenium", "webdriver", "driver"].some((attribute) =>
+          root.hasAttribute(attribute),
+        ),
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Exact Selenium/WebDriver markers exposed on `document`. */
+export function isSeleniumDocumentArtifacts(context: ExtendedWindow): boolean {
+  return hasMatchingTruthyKey(context.document, LEGACY_DOCUMENT_KEY_PATTERNS);
+}
+
+function hasSannysoftDocumentCache(context: ExtendedWindow): boolean {
+  for (const key in context.document) {
+    if (!SANNYSOFT_DOCUMENT_CACHE_KEY_PATTERN.test(key)) {
+      continue;
+    }
+    const value = getPropertySafely(context.document, key);
+    if (
+      ((typeof value === "object" && value !== null) ||
+        typeof value === "function") &&
+      Boolean(getPropertySafely(value, "cache_"))
+    ) {
+      return true;
     }
   }
 
@@ -77,35 +236,71 @@ export function isMissingChromeObject(context: ExtendedWindow): boolean {
   // `chrome.runtime` is an extension API and is not guaranteed to be exposed
   // to ordinary web pages. Only the absence of the browser marker itself is
   // suspicious; requiring `runtime` makes legitimate Chromium look automated.
-  return context.chrome === undefined;
+  return getPropertySafely(context, "chrome") === undefined;
 }
 
-/** WebGL reports a software renderer such as SwiftShader or llvmpipe */
-export function isSoftwareRenderer(context: ExtendedWindow): boolean {
+/** Reads the unmasked WebGL vendor/renderer pair, or `null` when unavailable. */
+function readWebGlIdentity(
+  context: ExtendedWindow,
+): { vendor: string; renderer: string } | null {
   const canvas = context.document.createElement("canvas");
   const gl =
     canvas.getContext("webgl") ??
     canvas.getContext("experimental-webgl" as "webgl");
 
   if (!gl) {
-    return false;
+    return null;
   }
 
   const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
   if (!debugInfo) {
-    return false;
+    return null;
   }
 
   const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
   if (typeof renderer !== "string") {
+    return null;
+  }
+
+  const vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
+  return { vendor: typeof vendor === "string" ? vendor : "", renderer };
+}
+
+/** WebGL reports a software renderer such as SwiftShader or llvmpipe */
+export function isSoftwareRenderer(context: ExtendedWindow): boolean {
+  const identity = readWebGlIdentity(context);
+  if (!identity) {
     return false;
   }
 
-  return SOFTWARE_RENDERER_PATTERNS.some((pattern) => pattern.test(renderer));
+  return SOFTWARE_RENDERER_PATTERNS.some((pattern) =>
+    pattern.test(identity.renderer),
+  );
+}
+
+/**
+ * The WebGL renderer names a graphics backend the User-Agent's platform
+ * cannot provide — Direct3D off Windows, Metal off Apple, Adreno off Android.
+ */
+export function isGpuPlatformMismatch(context: ExtendedWindow): boolean {
+  const identity = readWebGlIdentity(context);
+  if (!identity) {
+    return false;
+  }
+
+  const userAgent = context.navigator.userAgent;
+  const gpu = `${identity.vendor} ${identity.renderer}`;
+  return GPU_PLATFORM_RULES.some(
+    (rule) => rule.renderer.test(gpu) && !rule.platform.test(userAgent),
+  );
 }
 
 /** Window has no browser chrome and sits at the origin — common in headless automation */
 export function isSuspiciousWindowDimensions(context: ExtendedWindow): boolean {
+  if (context.outerWidth === 0 && context.outerHeight === 0) {
+    return true;
+  }
+
   const noBrowserChrome =
     context.outerWidth === context.innerWidth &&
     context.outerHeight === context.innerHeight;
@@ -132,55 +327,75 @@ export function isEmptyPlugins(context: ExtendedWindow): boolean {
   return context.navigator.plugins.length === 0;
 }
 
-/** Known automation framework/runtime artifacts on `window` / `document` */
-export function isAutomationArtifacts(context: ExtendedWindow): boolean {
-  if (isPlaywright(context) || isPuppeteer(context) || isChromeDriver(context)) {
-    return true;
-  }
-
-  const process = context.process;
+/** Legacy automation and embedded-runtime artifacts, excluding exact frameworks. */
+export function isLegacyAutomationArtifacts(context: ExtendedWindow): boolean {
+  const processValue = getPropertySafely(context, "process");
+  const process =
+    (typeof processValue === "object" && processValue !== null) ||
+    typeof processValue === "function"
+      ? processValue
+      : undefined;
+  const versions = process
+    ? getPropertySafely(process, "versions")
+    : undefined;
+  const hasElectronVersion =
+    ((typeof versions === "object" && versions !== null) ||
+      typeof versions === "function") &&
+    getPropertySafely(versions, "electron") !== undefined;
   const isElectron =
-    process?.type === "renderer" ||
-    process?.versions?.electron !== undefined ||
+    (process && getPropertySafely(process, "type") === "renderer") ||
+    hasElectronVersion ||
     /(?:Electron|SlimerJS)/i.test(
       `${context.navigator.userAgent} ${context.navigator.appVersion ?? ""}`,
     );
-  const isSequentum = /Sequentum/i.test(String(context.external ?? ""));
+  let isSequentum = false;
+  try {
+    isSequentum = /Sequentum/i.test(String(context.external ?? ""));
+  } catch {
+    isSequentum = false;
+  }
 
   return (
     isElectron ||
     isSequentum ||
-    hasMatchingKey(context, LEGACY_AUTOMATION_KEY_PATTERNS) ||
-    hasMatchingKey(context.document, LEGACY_DOCUMENT_KEY_PATTERNS)
+    hasMatchingTruthyKey(context, LEGACY_AUTOMATION_KEY_PATTERNS) ||
+    isSeleniumDocumentArtifacts(context) ||
+    hasInstalledExposedFunction(context) ||
+    hasAutomationDocumentAttribute(context)
   );
+}
+
+/** Known automation framework/runtime artifacts on `window` / `document` */
+export function isAutomationArtifacts(context: ExtendedWindow): boolean {
+  return isPlaywright(context) ||
+    isPuppeteer(context) ||
+    isChromeDriver(context) ||
+    isLegacyAutomationArtifacts(context);
 }
 
 /** Playwright bindings or init-script registries leaked into the page realm. */
 export function isPlaywright(context: ExtendedWindow): boolean {
   return (
-    Boolean(
-      context.__playwright ||
-        context.__pw_manual ||
-        context.__playwright__binding__ ||
-        context.__pwInitScripts,
-    ) || hasMatchingKey(context, PLAYWRIGHT_KEY_PATTERNS)
+    hasMatchingKey(context, PLAYWRIGHT_KEY_PATTERNS) ||
+    hasFunctionSourceMarker(context, PLAYWRIGHT_BINDING_SOURCE_PATTERN)
   );
 }
 
 /** Puppeteer evaluation helpers leaked into the page realm. */
 export function isPuppeteer(context: ExtendedWindow): boolean {
   return (
-    Boolean(context.__puppeteer_evaluation_script__) ||
-    hasMatchingKey(context, PUPPETEER_KEY_PATTERNS)
+    hasMatchingKey(context, PUPPETEER_KEY_PATTERNS) ||
+    hasPrefixedFunction(context, /^puppeteer_/) ||
+    hasFunctionSourceMarker(context, PUPPETEER_BINDING_SOURCE_PATTERN)
   );
 }
 
 /** ChromeDriver/Selenium `cdc_` and element-cache artifacts. */
 export function isChromeDriver(context: ExtendedWindow): boolean {
   return (
-    Boolean(context._WEBDRIVER_ELEM_CACHE) ||
     hasMatchingKey(context, CHROMEDRIVER_KEY_PATTERNS) ||
-    hasMatchingKey(context.document, CHROMEDRIVER_KEY_PATTERNS)
+    hasMatchingKey(context.document, CHROMEDRIVER_KEY_PATTERNS) ||
+    hasSannysoftDocumentCache(context)
   );
 }
 
@@ -242,14 +457,17 @@ export function isUserAgentDataMismatch(context: ExtendedWindow): boolean {
 /** `navigator.language` disagrees with the first entry in `navigator.languages`. */
 export function isLanguageInconsistent(context: ExtendedWindow): boolean {
   const { language, languages } = context.navigator;
-  if (!language || !languages) {
+  if (!languages) {
+    return false;
+  }
+  if (languages.length === 0) {
+    return true;
+  }
+  if (!language) {
     return false;
   }
 
-  return (
-    languages.length === 0 ||
-    languages[0]?.toLowerCase() !== language.toLowerCase()
-  );
+  return languages[0]?.toLowerCase() !== language.toLowerCase();
 }
 
 /** Plugin and MIME-type arrays were patched independently and no longer agree. */
@@ -295,22 +513,48 @@ function isNativeFunction(value: unknown, toString: (this: Function) => string):
 
 /** Core functions or Navigator getters no longer have browser-native source. */
 export function isNativeFunctionTampered(context: ExtendedWindow): boolean {
-  const functionConstructor = context.Function;
+  const functionConstructor = getPropertySafely(context, "Function") as
+    | FunctionConstructor
+    | undefined;
   if (!functionConstructor) {
     return false;
   }
 
-  const { bind, toString } = functionConstructor.prototype;
+  let bind: unknown;
+  let toString: unknown;
+  try {
+    ({ bind, toString } = functionConstructor.prototype);
+  } catch {
+    return true;
+  }
+  if (typeof toString !== "function") {
+    return true;
+  }
+  const functionToString = toString as (this: Function) => string;
   if (
-    !isNativeFunction(toString, toString) ||
-    !isNativeFunction(bind, toString)
+    !isNativeFunction(toString, functionToString) ||
+    !isNativeFunction(bind, functionToString)
   ) {
     return true;
   }
 
-  for (const property of ["hardwareConcurrency", "languages", "plugins"] as const) {
+  const isNativeNavigator =
+    Object.prototype.toString.call(context.navigator) === "[object Navigator]";
+
+  for (const property of NAVIGATOR_ACCESSOR_PROPERTIES) {
     const descriptor = findPropertyDescriptor(context.navigator, property);
-    if (descriptor?.get && !isNativeFunction(descriptor.get, toString)) {
+    if (!descriptor) {
+      continue;
+    }
+    // Engines expose these as prototype accessors. A plain data property means
+    // something re-defined it with `Object.defineProperty(..., { value })`.
+    if (!descriptor.get) {
+      if (isNativeNavigator) {
+        return true;
+      }
+      continue;
+    }
+    if (!isNativeFunction(descriptor.get, functionToString)) {
       return true;
     }
   }
@@ -397,11 +641,39 @@ export function isPluginArrayInconsistent(context: ExtendedWindow): boolean {
       }
     }
   }
+  try {
+    const firstPlugin = plugins[0];
+    if (
+      firstPlugin &&
+      firstPlugin.toString() !== "[object Plugin]"
+    ) {
+      return true;
+    }
+  } catch {
+    return true;
+  }
   if (context.MimeType) {
     for (let index = 0; index < mimeTypes.length; index += 1) {
       if (!(mimeTypes[index] instanceof context.MimeType)) {
         return true;
       }
+    }
+  }
+
+  if (plugins.length > 0 && typeof plugins.item === "function") {
+    try {
+      // Native `PluginArray.item()` takes an `unsigned long`, so 2³² wraps to
+      // index 0. Array-backed fakes return `undefined` instead.
+      if (plugins.item(4294967296) !== plugins[0]) {
+        return true;
+      }
+      // Real MIME entries link back to the plugin that enables them.
+      const mimeType = plugins[0]?.[0];
+      if (mimeType && mimeType.enabledPlugin !== plugins[0]) {
+        return true;
+      }
+    } catch {
+      return true;
     }
   }
 
@@ -424,7 +696,16 @@ export function isIframeInconsistent(context: ExtendedWindow): boolean {
     if (frame) {
       const main = context.navigator;
       const child = frame.navigator;
+      const frameGet = (frame.self as (Window & { get?: unknown }) | undefined)
+        ?.get;
       inconsistent =
+        frame === context ||
+        child === main ||
+        (typeof frameGet === "function" && frameGet.toString().length > 5) ||
+        (typeof frame.setTimeout === "function" &&
+          frame.setTimeout === context.setTimeout) ||
+        (isChromiumBrowser(context) &&
+          Boolean((frame as ExtendedWindow).chrome) !== Boolean(context.chrome)) ||
         Boolean(main.webdriver) !== Boolean(child.webdriver) ||
         main.userAgent !== child.userAgent ||
         (Boolean(main.platform) && main.platform !== child.platform) ||
@@ -440,7 +721,7 @@ export function isIframeInconsistent(context: ExtendedWindow): boolean {
   return inconsistent;
 }
 
-/** Error stacks contain automation-injected source URLs or framework names. */
+/** Error stacks contain automation-specific source URLs or injected frames. */
 export function isErrorStackAutomation(context: ExtendedWindow): boolean {
   if (!context.Error) {
     return false;
@@ -472,11 +753,21 @@ export function isSuspiciousHardware(context: ExtendedWindow): boolean {
   const cores = context.navigator.hardwareConcurrency;
   const memory = context.navigator.deviceMemory;
 
+  // Engines round `deviceMemory` to a power of two, so an off-grid value was
+  // fabricated. Large values are legitimate — real workstations report 32.
+  if (typeof memory === "number" && !ALLOWED_DEVICE_MEMORY.includes(memory)) {
+    return true;
+  }
+
+  if (typeof cores !== "number") {
+    return false;
+  }
+
   return (
-    (typeof memory === "number" && memory > 16) ||
-    (typeof cores === "number" &&
-      (cores > 64 ||
-        (cores > 32 && typeof memory === "number" && memory <= 8)))
+    !Number.isInteger(cores) ||
+    cores < 1 ||
+    cores > 128 ||
+    (cores > 32 && typeof memory === "number" && memory <= 2)
   );
 }
 
@@ -507,6 +798,174 @@ export function isCanvasTampered(context: ExtendedWindow): boolean {
   }
 }
 
+type BrowserEngine = "chromium" | "gecko" | "webkit";
+
+/** The engine the User-Agent implies, or `null` when it names no known browser. */
+function getClaimedEngine(userAgent: string): BrowserEngine | null {
+  // iOS puts every browser on WebKit regardless of the brand in the UA.
+  if (/(?:iPhone|iPad|iPod)/i.test(userAgent)) {
+    return "webkit";
+  }
+  if (/\b(?:Chrome|Chromium|Edg|OPR|SamsungBrowser)\//i.test(userAgent)) {
+    return "chromium";
+  }
+  if (/\bFirefox\//i.test(userAgent)) {
+    return "gecko";
+  }
+  if (/\bVersion\/[^ ]+.*Safari\//i.test(userAgent)) {
+    return "webkit";
+  }
+
+  return null;
+}
+
+/**
+ * The JavaScript engine contradicts the browser the User-Agent claims.
+ *
+ * `eval.toString().length` is 33 in V8 (single-line native source) and 37 in
+ * SpiderMonkey and JavaScriptCore, and `InternalError` exists only in
+ * SpiderMonkey — neither is touched by User-Agent spoofing.
+ */
+export function isEngineInconsistent(context: ExtendedWindow): boolean {
+  const engine = getClaimedEngine(context.navigator.userAgent);
+  if (!engine) {
+    return false;
+  }
+
+  const hasSpiderMonkeyGlobals =
+    getPropertySafely(context, "InternalError") !== undefined ||
+    getPropertySafely(context, "mozInnerScreenX") !== undefined;
+  if (hasSpiderMonkeyGlobals !== (engine === "gecko")) {
+    return true;
+  }
+
+  const evaluate = getPropertySafely(context, "eval");
+  if (typeof evaluate !== "function") {
+    return false;
+  }
+
+  let evalLength: number;
+  try {
+    evalLength = evaluate.toString().length;
+  } catch {
+    return false;
+  }
+
+  // Only the two known native shapes attribute an engine; anything else is a
+  // wrapped `eval`, which isNativeFunctionTampered already covers.
+  if (evalLength === 33) {
+    return engine !== "chromium";
+  }
+  if (evalLength === 37) {
+    return engine === "chromium";
+  }
+
+  return false;
+}
+
+/**
+ * CSS media queries contradict the values `navigator`/`screen` report.
+ * Stealth patches override the JS getters but not the CSS engine behind them.
+ */
+export function isMediaQueryInconsistent(context: ExtendedWindow): boolean {
+  const matchMedia = context.matchMedia;
+  if (typeof matchMedia !== "function") {
+    return false;
+  }
+
+  const matches = (query: string): boolean | null => {
+    try {
+      return matchMedia.call(context, query).matches;
+    } catch {
+      return null;
+    }
+  };
+
+  // Bail out on engines that do not support resolution queries at all.
+  if (matches("(min-resolution: 0dppx)") !== true) {
+    return false;
+  }
+
+  const ratio = context.devicePixelRatio;
+  if (
+    typeof ratio === "number" &&
+    ratio > 0 &&
+    (matches(`(min-resolution: ${ratio - 0.02}dppx)`) === false ||
+      matches(`(max-resolution: ${ratio + 0.02}dppx)`) === false)
+  ) {
+    return true;
+  }
+
+  const colorDepth = context.screen.colorDepth;
+  if (typeof colorDepth === "number" && colorDepth > 0) {
+    const bitsPerChannel = Math.round(colorDepth / 3);
+    if (
+      matches(`(min-color: ${bitsPerChannel - 1})`) === false ||
+      matches(`(max-color: ${bitsPerChannel + 1})`) === false
+    ) {
+      return true;
+    }
+  }
+
+  // Phones and tablets always expose at least one coarse pointer.
+  return (
+    /(?:Mobi|Android|iPhone|iPad)/i.test(context.navigator.userAgent) &&
+    matches("(any-pointer: coarse)") === false
+  );
+}
+
+/** `screen` reports geometry no display pipeline can produce. */
+export function isScreenGeometryInconsistent(context: ExtendedWindow): boolean {
+  const screen = context.screen;
+  const { width, height, availWidth, availHeight, colorDepth, pixelDepth } =
+    screen;
+
+  if (typeof width !== "number" || typeof height !== "number") {
+    return false;
+  }
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return true;
+  }
+  // The available area is carved out of the screen, so it can never exceed it.
+  if (typeof availWidth === "number" && availWidth > width) {
+    return true;
+  }
+  if (typeof availHeight === "number" && availHeight > height) {
+    return true;
+  }
+  if (typeof colorDepth === "number") {
+    if (!ALLOWED_COLOR_DEPTHS.includes(colorDepth)) {
+      return true;
+    }
+    if (typeof pixelDepth === "number" && pixelDepth !== colorDepth) {
+      return true;
+    }
+  }
+
+  const ratio = context.devicePixelRatio;
+  return typeof ratio === "number" && (ratio <= 0 || ratio > 8);
+}
+
+/**
+ * A Chromium build without H.264 — the bundled Chromium that Playwright and
+ * unbranded automation images ship, as opposed to Google Chrome.
+ */
+export function isMissingProprietaryCodecs(context: ExtendedWindow): boolean {
+  if (!isChromiumBrowser(context)) {
+    return false;
+  }
+
+  try {
+    const video = context.document.createElement("video");
+    if (typeof video.canPlayType !== "function") {
+      return false;
+    }
+    return video.canPlayType('video/mp4; codecs="avc1.42E01E"') === "";
+  } catch {
+    return false;
+  }
+}
+
 /** `navigator.webdriver` was patched (own property) or deleted from the prototype */
 export function isSuspiciousWebDriverDescriptor(
   context: ExtendedWindow,
@@ -523,6 +982,9 @@ export function isSuspiciousWebDriverDescriptor(
     return false;
   }
 
+  const isNativeNavigator =
+    Object.prototype.toString.call(navigator) === "[object Navigator]";
+
   // Stealth patches sometimes delete the descriptor outright; a Chromium
   // navigator without `webdriver` anywhere on its prototype chain is tampered.
   for (
@@ -530,8 +992,13 @@ export function isSuspiciousWebDriverDescriptor(
     prototype !== null;
     prototype = Object.getPrototypeOf(prototype)
   ) {
-    if (Object.prototype.hasOwnProperty.call(prototype, "webdriver")) {
-      return false;
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, "webdriver");
+    if (descriptor) {
+      return isNativeNavigator &&
+        (typeof descriptor.get !== "function" ||
+          descriptor.set !== undefined ||
+          descriptor.enumerable !== true ||
+          descriptor.configurable !== true);
     }
   }
 

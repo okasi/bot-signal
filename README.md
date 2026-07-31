@@ -205,13 +205,17 @@ client-supplied fingerprint header at the edge before adding the trusted value;
 an arbitrary request header is attacker-controlled and is not JA3/JA4 evidence.
 No client-family TLS hashes are bundled because fingerprints vary by TLS stack
 and version and do not prove the calling library. Use
-`suspiciousTlsFingerprints` for JA3 or JA4 values captured in your own trusted
-environment.
+`suspiciousTlsFingerprints` for reputation-only JA3/JA4 values, or
+`suspiciousTlsFingerprintEntries` with a trusted `families` label when you also
+want TLS/User-Agent consistency and attribution corroboration.
 
 Both instant and server results include an `automation` assessment. When
 page-realm artifacts are exposed they can identify `playwright`, `puppeteer`,
 `selenium`, `phantomjs`, or `nightmare`. A scripting-client User-Agent can
-suggest `curl`, `python`, `go`, or `java`; TLS fingerprints only add risk or
+suggest `curl`, `python`, `go`, or `java`; explicit UA products can identify a
+`browser-automation`, `playwright`, `puppeteer`, `selenium`, or `phantomjs`
+family. Crawler and generic HTTP-client UAs use `kind: "unknown"` with explicit
+evidence to preserve the package's closed attribution union. TLS fingerprints only add risk or
 corroborating evidence and never identify a family alone. When fingerprints
 overlap, the result uses `browser-automation` plus `alternatives`. Patchright
 can appear as an
@@ -219,8 +223,9 @@ alternative when a Chromium automation pattern is present, but generic
 environment anomalies never identify Patchright on their own.
 `automation.isAutomated` records evidence independently of the
 configured enforcement threshold; `isLegitClient` remains the policy verdict.
-An automation `kind` of `unknown` means no client-family evidence was found,
-not that the request was proven human.
+An automation `kind` of `unknown` means no supported client-family kind was
+selected, not that the request was proven human; inspect `evidence` and
+`signals` for crawler, HTTP-client, or generic bot attribution.
 This is intentionally probabilistic: a page cannot prove which Node/Python
 package controls a browser after all brand-specific artifacts are removed.
 Server reputation/geo signals can make `isLegitClient` false without setting
@@ -237,52 +242,63 @@ Bundled IP data is refreshed weekly. Run locally: `npm run update:ip-data`.
 Each check contributes its weight to `suspicionScore`; `isLegitClient` is
 `suspicionScore < scoreThreshold` (default 0.5). Every boolean flag is still on
 the result for inspection, alongside `signals[]` with per-check weights.
-The attribution-only `isPlaywright`, `isPuppeteer`, and `isChromeDriver`
-booleans refine the weighted `isAutomationArtifacts` umbrella rather than
-adding duplicate weight.
+Distinctive Playwright, Puppeteer, and ChromeDriver artifacts block on their
+own. Generic legacy or embedded-runtime markers stay soft because ordinary
+applications can reuse those global names.
 
 | Flag | Weight | Triggers when |
 |------|--------|---------------|
 | `isWebDriver` | 1.0 | `navigator.webdriver === true` |
-| `isAutomationArtifacts` | 1.0 | ChromeDriver, Puppeteer, Playwright, Electron, Selenium/WebDriver, or legacy runtime markers |
+| `isPlaywright` | 1.0 | Playwright bindings, init scripts, or exposed-function source markers |
+| `isPuppeteer` | 1.0 | Puppeteer bindings, evaluation artifacts, or `puppeteer_*` functions |
+| `isChromeDriver` | 1.0 | Distinctive ChromeDriver or WebDriver cache artifacts |
+| `isAutomationArtifacts` | 0.35 | Umbrella for framework, legacy automation, exposed-function, embedded-runtime, or document-attribute markers |
 | `isSelenium` | 1.0 | Selenium document markers |
-| `isPhantomJS` | 1.0 | PhantomJS globals present |
+| `isPhantomJS` | 1.0 | PhantomJS-specific `callPhantom` or `_phantom` global present |
 | `isNightmare` | 1.0 | Nightmare.js marker |
 | `isDomAutomation` | 1.0 | Chrome DOM automation globals |
-| `isHeadless` | 0.9 | WebDriver or HeadlessChrome UA/appVersion |
+| `isHeadless` | 0.9 | WebDriver, or a HeadlessChrome UA / appVersion / Client Hints brand |
 | `isSuspiciousWebDriverDescriptor` | 0.9 | Patched/deleted `navigator.webdriver` |
 | `isSuspiciousResolution` | 0.7 | Screen < 136×170 |
-| `isUserAgentValid` | 0.7 | UA is malformed or contains a scripting-client token |
+| `isUserAgentValid` | 0.7 | UA is malformed or contains a known bot, scripting, or automation token |
 | `isSoftwareRenderer` | 0.6 | SwiftShader / llvmpipe WebGL |
 | `isUserAgentDataMismatch` | 0.65 | UA version/mobile/platform conflicts with Client Hints |
 | `isNativeFunctionTampered` | 0.8 | Native functions or Navigator getters were patched |
 | `isNavigatorIdentityInconsistent` | 0.65 | UA conflicts with Navigator vendor/platform/product/touch claims |
 | `isPluginArrayInconsistent` | 0.65 | Plugin/MIME arrays or entries have non-native prototypes |
-| `isIframeInconsistent` | 0.8 | Navigator differs between the main realm and a fresh iframe |
+| `isIframeInconsistent` | 0.8 | Realm identity, timers, injected `self.get`, Chrome state, or Navigator differs in a fresh iframe |
 | `isErrorStackAutomation` | 0.85 | Error stack contains an automation source marker |
+| `isEngineInconsistent` | 0.8 | `eval.toString().length` (33 in V8, 37 in SpiderMonkey/JSC) or SpiderMonkey-only globals contradict the browser the UA claims |
+| `isGpuPlatformMismatch` | 0.6 | WebGL renderer names Direct3D off Windows, Metal off Apple, or Adreno/Mali off Android |
+| `isMediaQueryInconsistent` | 0.5 | CSS `resolution`/`color`/`any-pointer` queries contradict `devicePixelRatio`, `screen.colorDepth`, or a mobile UA |
 | `isLanguageInconsistent` | 0.45 | `language` disagrees with `languages[0]` |
 | `isPluginMimeTypeInconsistent` | 0.45 | Plugins and MIME types were patched inconsistently |
+| `isScreenGeometryInconsistent` | 0.45 | `availWidth`/`availHeight` exceed the screen, or an impossible colour depth |
+| `isMissingProprietaryCodecs` | 0.4 | Chromium build with no H.264 (unbranded automation image, not Google Chrome) |
 | `isMissingChromeObject` | 0.35 | Chromium without `window.chrome` (in-app browsers) |
 | `isWebGLSupported` | 0.35 | No WebGL context (GPU-less VMs, headless Chromium 139+) |
-| `isSuspiciousWindowDimensions` | 0.3 | No browser chrome + origin placement (F11 fullscreen) |
+| `isSuspiciousWindowDimensions` | 0.3 | Zero outer size, or no browser chrome + origin placement (F11 fullscreen) |
 | `isModern` | 0.3 | Below Chrome 121 / Firefox 128 / Safari 16.4 |
 | `isEmptyPlugins` | 0.25 | Zero plugins on **desktop** Chromium |
-| `isSuspiciousHardware` | 0.3 | Implausible CPU/device-memory values |
+| `isSuspiciousHardware` | 0.3 | `deviceMemory` off the power-of-two grid, or an impossible CPU count |
 | `isZeroConnectionRtt` | 0.2 | Zero Network Information RTT outside Android |
 | `isDefaultAutomationViewport` | 0.2 | 800×600 or 1280×720 screen/viewport default |
 | `isCanvasTampered` | 0.2 | Deterministic canvas pixel changes on readback |
 | `isShaderF16Supported` | 0.3 | Async — missing WebGPU `shader-f16` on Chromium |
-| `isCdpDetected` | 0.7 | Async — CDP serialized an `Error` object |
+| `isCdpDetected` | 0.25 | Async — CDP serialized an `Error` object (deduplicated with worker CDP) |
 | `isNotificationPermissionInconsistent` | 0.55 | Async — Notification and Permissions states contradict |
 | `isHighEntropyUserAgentDataMismatch` | 0.65 | Async — high-entropy UA-CH conflicts with the UA |
 | `isWorkerInconsistent` | 0.8 | Async — worker Navigator differs from the main realm |
-| `isCdpDetectedInWorker` | 0.7 | Async — CDP serialized an `Error` in a worker |
+| `isCdpDetectedInWorker` | 0.25 | Async — CDP serialized an `Error` in a worker (deduplicated with page CDP) |
+| `isMissingMediaDevices` | 0.3 | Async — desktop Chromium enumerated no audio or video devices |
 
 Signals weighted below the 0.5 threshold are soft: individually they flag but
 don't block, so common false-positive cases (in-app browsers, kiosk fullscreen,
 VMs) pass unless they stack. `isEmptyPlugins` is skipped entirely on mobile
-Chrome, which legitimately reports no plugins. The CDP probes use medium
-confidence because an open DevTools session can also cause serialization.
+Chrome, which legitimately reports no plugins. The Chromium-only CDP probes
+use medium confidence and contribute at most one 0.25 signal when either or
+both trigger, because an open DevTools session can also serialize the
+diagnostic objects.
 
 ### Behavioral (weighted)
 
@@ -291,6 +307,7 @@ confidence because an open DevTools session can also cause serialization.
 | `no-mouse-activity` | 0.20 | low | Pointer clicks with zero mouse/touch events |
 | `click-without-mouse-movement` | 0.35 | high | Click with no mouse or touch activity in the prior 2s |
 | `linear-mouse-movement` | 0.25 | medium | Straight path, uniform speed |
+| `zero-mouse-movement-deltas` | 0.30 | medium | More than 50 mouse events all report zero `movementX`/`movementY` |
 | `teleport-mouse` | 0.40 | high | Implausible cursor jumps between closely-spaced events |
 | `linear-scroll` | 0.30 | medium | Uniform scroll deltas/timing |
 | `linear-typing` | 0.35 | high | Robotic or superhuman intervals (key auto-repeat excluded) |
@@ -310,6 +327,7 @@ the logic.
 | ID | Weight | Confidence | Description |
 |----|--------|------------|-------------|
 | `scripting-user-agent` | 0.75 | medium | UA claims curl/Python/Go/Java |
+| `bot-user-agent` | 0.90 | high | UA claims a conservative known bot, HTTP-client, or automation product token |
 | `client-hints-mismatch` | 0.65 | high | Chromium UA version conflicts with `sec-ch-ua` |
 | `client-user-agent-mismatch` | 0.80 | high | HTTP UA conflicts with `navigator.userAgent` from a client beacon |
 | `client-language-mismatch` | 0.45 | medium | Accept-Language conflicts with Navigator languages |
@@ -317,8 +335,8 @@ the logic.
 | `client-hints-mobile-mismatch` | 0.55 | high | `sec-ch-ua-mobile` conflicts with the UA |
 | `missing-browser-headers` | 0.35 | medium | Browser UA lacks Fetch Metadata headers (opt-in) |
 | `timezone-mismatch` | 0.45 | high | Client TZ ≠ GeoIP TZ (sub-threshold: VPNs/travelers don't block alone) |
-| `known-suspicious-tls` | 0.55 | high | JA3/JA4 matches a caller-supplied suspicious value |
-| `tls-user-agent-mismatch` | 0.50 | high | JA3 conflicts with User-Agent |
+| `known-suspicious-tls` | 0.55 | high / entry confidence | JA3/JA4 matches a caller-supplied suspicious value |
+| `tls-user-agent-mismatch` | 0.50 | entry confidence | JA3/JA4 family conflicts with User-Agent |
 | `missing-tls-fingerprint` | 0.25 | medium | Browser UA without a TLS fingerprint |
 | `accept-language-geo-mismatch` | 0.20 | low | No acceptable Accept-Language country matches GeoIP (region-less, numeric-region, and q=0-only headers pass) |
 | `datacenter-browser-mismatch` | 0.35 | medium | Datacenter IP + browser UA |
@@ -352,21 +370,21 @@ browser feature absence into bot evidence.
 
 | Checker | Coverage in `bot-signal` | Boundary |
 |---------|--------------------------|----------|
-| [Sannysoft Antibot](https://bot.sannysoft.com/) | UA/WebDriver/descriptor, Chrome object, permissions, plugins/MIME/languages, WebGL, iframe, Selenium/Phantom/Sequentum artifacts | Alert timing, broken-image/transparent-pixel, battery, and codec capability probes are legacy or high-noise and are not scored |
+| [Sannysoft Antibot](https://bot.sannysoft.com/) | UA/WebDriver/getter, Chrome object, permissions, plugins/MIME/languages, iframe realm and Chrome state, Selenium/PhantomJS/Sequentum globals and document attributes | Generic `window.phantom` is omitted because the Phantom wallet uses it; alert timing, broken-image pixels, battery, codecs, and detailed WebGL expectations are intrusive or high-noise |
 | [Incolumitas Bot Detection](https://bot.incolumitas.com/) | Header-vs-JS UA/language, native getter and plugin integrity, worker consistency, RTT, behavior, IP/TLS/timezone/datacenter signals | Its server challenge classifiers and network latency/open-port tests require site-owned infrastructure |
-| [Rebrowser Bot Detector](https://bot-detector.rebrowser.net/) | CDP serialization, Playwright/Puppeteer globals and init scripts, WebDriver descriptor, default viewport, UA-CH, automation stack URLs | CSP bypass, main-world hooks, and honeypot access are active per-page challenges, not passive library checks |
+| [Rebrowser Bot Detector](https://bot-detector.rebrowser.net/) | CDP serialization, Playwright/Puppeteer globals, exposed bindings and init scripts, WebDriver getter, default viewport, automation-specific stack URLs | Treating any own Navigator property as automation, CSP bypass, main-world hooks, honeypot access, live stable-version comparison, and requiring Google Chrome branding/high-entropy data (which rejects legitimate unbranded Chromium) are intentionally omitted |
 | [Pixelscan Bot Check](https://pixelscan.net/bot-check) | WebDriver/CDP, Selenium/ChromeDriver, Electron/Phantom/Awesomium/CEF/FMiner/Geb/Phantomas-style artifacts, headless UA, native tampering, unusual environment combinations | Pixelscan's private “advanced” model is not published |
 | [Scrapfly Automation Detector](https://scrapfly.io/web-scraping-tools/automation-detector) | All stable passive categories: WebDriver, UA, plugins/MIME/languages, native functions/descriptors, Selenium/ChromeDriver/Phantom artifacts, permissions | `chrome.runtime` is intentionally not required: it is an extension API and is absent on ordinary pages |
-| [DeviceAndBrowserInfo](https://deviceandbrowserinfo.com/are_you_a_bot) | Main/iframe/worker WebDriver and value consistency, automation globals, UA/WebGL/WebGPU/hardware/default-screen checks, CDP in page and worker, high-entropy UA-CH, canvas and behavioral signals | Population-based GPU/timing/shader-backend expectations remain browser-version dependent |
-| [APIVoid Bot Detection](https://www.apivoid.com/tools/bot-detection-test/) | Screen/window, scripting/headless UA, mobile touch, cookies-adjacent Navigator consistency, WebDriver, hardware, browser identity, plugins, permissions, WebGL/software GPU, canvas, automation properties | Font inventory and missing optional-media-API checks are fingerprints, not reliable standalone bot signals |
+| [DeviceAndBrowserInfo](https://deviceandbrowserinfo.com/are_you_a_bot) | Main/iframe/worker WebDriver and value consistency, iframe `self.get` hook, automation globals, bot UA, WebGL availability/software GPU, WebGPU feature, hardware/default-screen, CDP, high-entropy UA-CH, canvas and behavior | Population-based GPU vendor/renderer, timing, and shader-backend expectations remain browser-version dependent; distinctive globals are checked once rather than re-polled every ~200ms |
+| [APIVoid Bot Detection](https://www.apivoid.com/tools/bot-detection-test/) | Screen/zero-window, scripting/headless/bot UA, Navigator identity/platform/touch consistency, WebDriver, hardware, plugins, permissions, WebGL availability/software GPU, canvas, automation properties | Cookie availability, WebRTC-vs-public-IP comparison, Web Audio, SpeechSynthesis, Bluetooth, font/media capabilities, and engine/version baselines are not scored as standalone bot signals |
 | [Fingerprint Web Scraping Prevention](https://demo.fingerprint.com/web-scraping) | Public BotD-style UA, runtime, document, plugin, permission, WebGL, window, and distinctive-property categories | The commercial Web Scraping Smart Signal is a proprietary server model and cannot be reproduced locally |
 | [InfoSimples Detect Headless](https://infosimples.github.io/detect-headless/) | UA/appVersion, WebDriver, Chrome object, permissions, plugin/MIME prototypes, languages, window size, RTT, CDP | Blocking `alert()` timing and broken-image probes are intrusive/obsolete and are not run |
 | [Intoli Headless Chrome Test](https://intoli.com/blog/not-possible-to-block-chrome-headless/chrome-headless-test.html) | UA, WebDriver, Chrome object, permissions, plugins, languages | Covered by the instant and async result fields above |
 | [CreepJS Fingerprint Checker](https://creepjs.org/checker) | Relevant lie/tamper and cross-realm consistency categories map to native, canvas, UA/platform, WebGL/WebGPU, timezone, language, and worker signals | Its raw rendering/device/media/font values are fingerprint inputs, not bot detections |
 | [BrowserLeaks JavaScript](https://browserleaks.com/javascript) | Relevant Navigator/screen/language/timezone/CPU/plugin contradictions are covered | The page is a JavaScript capability/fingerprint viewer and does not publish a bot verdict |
-| [BrowserScan](https://www.browserscan.net/) | UA/OS/client-hint, webdriver, screen/touch/memory, canvas/WebGL/WebGPU, timezone/language, IP/blocklist/TLS/JA3/JA4 categories | “Correctness” needs BrowserScan's private population/browser-version baselines |
-| [Scrapfly Browser Fingerprint](https://scrapfly.io/web-scraping-tools/browser-fingerprint) | Consistency signals cover its screen, canvas, GPU, Navigator, UA-CH, MIME, permissions, timezone, and server profile categories | Audio/fonts/codecs/DRM/voices are collected fingerprints, not direct automation evidence |
-| [BrowserAudit](https://browseraudit.com/) | Security-relevant API failures can corroborate other environment signals | BrowserAudit is a standards/security conformance suite, not a bot detector; its 400+ compliance assertions are out of scope for bot scoring |
+| [BrowserScan](https://www.browserscan.net/) | UA/OS/client-hint, webdriver, screen/touch/memory, canvas, WebGL availability/software GPU, WebGPU feature, timezone/language, IP/blocklist/TLS/JA3/JA4 categories | Detailed GPU “correctness” needs BrowserScan's private population and browser-version baselines |
+| [Scrapfly Browser Fingerprint](https://scrapfly.io/web-scraping-tools/browser-fingerprint) | Consistency signals cover screen, canvas, GPU availability, Navigator, UA-CH, MIME, permissions, timezone, and language | Server-profile population matching plus audio/fonts/codecs/DRM/voices are fingerprint inputs, not direct local automation evidence |
+| [BrowserAudit](https://browseraudit.com/) | No BrowserAudit security-conformance assertions are executed | BrowserAudit is a standards/security suite, not a bot detector; its 400+ assertions are out of scope for bot scoring |
 
 Challenge-only tests belong in the host application because they require a
 nonce, CSP policy, instrumented main world, network endpoint, or historical
@@ -424,8 +442,21 @@ detectServerClientAsync(context, {
   requireTlsFingerprint: false,
   requireBrowserHeaders: false,
   suspiciousTlsFingerprints: [],
+  suspiciousTlsFingerprintEntries: [
+    {
+      id: "trusted-curl-ja3",
+      label: "Trusted curl JA3",
+      fingerprintType: "ja3", // optional; defaults to ja3
+      hash: "e7d705a3286e19ea42f587b344ee6865",
+      families: ["curl"],
+      confidence: "high",
+    },
+  ],
 });
 ```
+
+For JA4, set `tlsFingerprintType: "ja4"` on the request context as well as
+`fingerprintType: "ja4"` on the structured entry; the context defaults to JA3.
 
 ### Behavioral options
 

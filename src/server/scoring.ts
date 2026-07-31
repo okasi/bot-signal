@@ -1,4 +1,5 @@
 import { createAutomationAssessment } from "../automation.js";
+import { getBotUserAgentKind } from "../userAgent.js";
 import { enrichServerContext } from "./enrich.js";
 import { buildServerSignals } from "./analysis.js";
 import type {
@@ -9,7 +10,13 @@ import type {
   ServerSignal,
 } from "./types.js";
 import type { EnrichedServerContext } from "./enrich.js";
-import { findTlsFingerprintEntry, getUserAgentFamily } from "./tls.js";
+import {
+  findTlsFingerprintEntry,
+  getUserAgentFamily,
+  isTlsUserAgentMismatch,
+  KNOWN_SUSPICIOUS_TLS_FINGERPRINTS,
+} from "./tls.js";
+import type { TlsFingerprintEntry } from "./tls.js";
 
 /**
  * Combines triggered signal weights into one score:
@@ -89,6 +96,7 @@ function buildResultContext(
 function classifyServerAutomation(
   context: ServerClientContext,
   suspiciousTlsFingerprints: string[],
+  suspiciousTlsFingerprintEntries: TlsFingerprintEntry[],
 ) {
   const uaFamily = getUserAgentFamily(context.userAgent);
   const tlsEntry = context.tlsFingerprint
@@ -96,10 +104,27 @@ function classifyServerAutomation(
         context.tlsFingerprint,
         suspiciousTlsFingerprints,
         context.tlsFingerprintType,
+        suspiciousTlsFingerprintEntries,
       )
     : undefined;
+  const hasFamilyLabel = Boolean(
+    tlsEntry &&
+      (KNOWN_SUSPICIOUS_TLS_FINGERPRINTS.includes(tlsEntry) ||
+        suspiciousTlsFingerprintEntries.includes(tlsEntry)),
+  );
+  const tlsSupportsUa = Boolean(
+    hasFamilyLabel &&
+      context.tlsFingerprint &&
+      context.userAgent &&
+      !isTlsUserAgentMismatch(
+        context.tlsFingerprint,
+        context.userAgent,
+        suspiciousTlsFingerprints,
+        context.tlsFingerprintType,
+        suspiciousTlsFingerprintEntries,
+      ),
+  );
   if (["curl", "python", "go", "java"].includes(uaFamily)) {
-    const tlsSupportsUa = tlsEntry?.families.includes(uaFamily);
     return createAutomationAssessment(
       true,
       uaFamily as "curl" | "python" | "go" | "java",
@@ -108,6 +133,27 @@ function classifyServerAutomation(
         `User-Agent claims ${uaFamily}`,
         ...(tlsSupportsUa ? [`TLS fingerprint is compatible with ${uaFamily}`] : []),
       ],
+    );
+  }
+
+  const botUaKind = getBotUserAgentKind(context.userAgent);
+  if (botUaKind) {
+    const alternatives = botUaKind === "browser-automation"
+      ? ["patchright", "playwright", "puppeteer", "selenium"] as const
+      : [];
+    return createAutomationAssessment(
+      true,
+      botUaKind === "crawler" || botUaKind === "http-client"
+        ? "unknown"
+        : botUaKind,
+      "high",
+      [
+        `User-Agent claims ${botUaKind}`,
+        ...(tlsSupportsUa && uaFamily !== "unknown"
+          ? [`TLS fingerprint is compatible with ${uaFamily}`]
+          : []),
+      ],
+      [...alternatives],
     );
   }
 
@@ -137,6 +183,7 @@ export function detectServerClient(
     automation: classifyServerAutomation(
       context,
       options.suspiciousTlsFingerprints ?? [],
+      options.suspiciousTlsFingerprintEntries ?? [],
     ),
     context: buildResultContext(context),
   };

@@ -129,6 +129,8 @@ export function createBehavioralClientDetector(
     record<MouseSample>(samples.mouseMoves, {
       x: mouseEvent.clientX,
       y: mouseEvent.clientY,
+      movementX: mouseEvent.movementX,
+      movementY: mouseEvent.movementY,
       t: Date.now(),
       isTrusted: mouseEvent.isTrusted,
     });
@@ -280,4 +282,5 @@ export {
   hasNoMouseActivity,
   hasSyntheticEvents,
   hasTeleportMouse,
+  hasZeroMouseMovementDeltas,
 } from "./analysis.js";
