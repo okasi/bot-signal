@@ -24,6 +24,14 @@ const GPU_PLATFORM_RULES: Array<{ renderer: RegExp; platform: RegExp }> = [
 /** `navigator.deviceMemory` is quantised to powers of two by every engine. */
 const ALLOWED_DEVICE_MEMORY = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64];
 
+/**
+ * How far a canvas channel may drift before it counts as rewritten. Colour
+ * management on wide-gamut displays moves values by a step; the noise that
+ * fingerprint-blocking extensions inject stays in the same range, and neither
+ * belongs to a bot.
+ */
+const CANVAS_CHANNEL_TOLERANCE = 3;
+
 /** Colour depths real display pipelines report; anything else is fabricated. */
 const ALLOWED_COLOR_DEPTHS = [8, 15, 16, 24, 30, 32, 48];
 
@@ -680,6 +688,75 @@ export function isPluginArrayInconsistent(context: ExtendedWindow): boolean {
   return false;
 }
 
+/** Navigator values a second realm reports, for drift comparison. */
+export interface RealmNavigatorSnapshot {
+  userAgent?: string;
+  language?: string;
+  languages?: readonly string[];
+  platform?: string;
+  hardwareConcurrency?: number;
+}
+
+/**
+ * How many Navigator values must drift between realms before it counts.
+ *
+ * Browser extensions — including the ones Opera, Brave, and Edge ship
+ * built in — routinely rewrite a single value in the top document without
+ * touching workers or `about:blank` frames. Spoofing frameworks install a
+ * whole persona, so requiring two independent differences keeps the signal
+ * without firing on an ordinary browser carrying an extension.
+ */
+export const MINIMUM_REALM_DRIFT = 2;
+
+/** Counts Navigator values that differ between the main realm and another one. */
+export function countNavigatorDrift(
+  main: RealmNavigatorSnapshot,
+  other: RealmNavigatorSnapshot,
+): number {
+  let drift = 0;
+
+  if (
+    typeof main.userAgent === "string" &&
+    typeof other.userAgent === "string" &&
+    main.userAgent !== other.userAgent
+  ) {
+    drift += 1;
+  }
+  if (
+    Boolean(main.platform) &&
+    typeof other.platform === "string" &&
+    main.platform !== other.platform
+  ) {
+    drift += 1;
+  }
+  if (
+    typeof main.hardwareConcurrency === "number" &&
+    typeof other.hardwareConcurrency === "number" &&
+    main.hardwareConcurrency !== other.hardwareConcurrency
+  ) {
+    drift += 1;
+  }
+  // `language` and `languages` move together, so they count once between them.
+  const mainLanguages = main.languages;
+  const otherLanguages = other.languages;
+  const hasLanguagesDrift =
+    mainLanguages !== undefined &&
+    otherLanguages !== undefined &&
+    mainLanguages.length > 0 &&
+    otherLanguages.length > 0 &&
+    JSON.stringify(Array.from(mainLanguages)) !==
+      JSON.stringify(Array.from(otherLanguages));
+  const hasLanguageDrift =
+    Boolean(main.language) &&
+    Boolean(other.language) &&
+    main.language !== other.language;
+  if (hasLanguagesDrift || hasLanguageDrift) {
+    drift += 1;
+  }
+
+  return drift;
+}
+
 /** A fresh same-origin iframe exposes Navigator values that differ from the main realm. */
 export function isIframeInconsistent(context: ExtendedWindow): boolean {
   const parent = context.document.documentElement ?? context.document.body;
@@ -698,21 +775,26 @@ export function isIframeInconsistent(context: ExtendedWindow): boolean {
       const child = frame.navigator;
       const frameGet = (frame.self as (Window & { get?: unknown }) | undefined)
         ?.get;
-      inconsistent =
+
+      // A fresh realm gets its own window, navigator, and function objects.
+      // Sharing any of them means something re-pointed the iframe at the page,
+      // and no browser or extension can produce that.
+      const isSharedRealm =
         frame === context ||
         child === main ||
         (typeof frameGet === "function" && frameGet.toString().length > 5) ||
         (typeof frame.setTimeout === "function" &&
-          frame.setTimeout === context.setTimeout) ||
-        (isChromiumBrowser(context) &&
-          Boolean((frame as ExtendedWindow).chrome) !== Boolean(context.chrome)) ||
-        Boolean(main.webdriver) !== Boolean(child.webdriver) ||
-        main.userAgent !== child.userAgent ||
-        (Boolean(main.platform) && main.platform !== child.platform) ||
-        (Boolean(main.languages) &&
-          JSON.stringify(main.languages) !== JSON.stringify(child.languages)) ||
-        (typeof main.hardwareConcurrency === "number" &&
-          main.hardwareConcurrency !== child.hardwareConcurrency);
+          frame.setTimeout === context.setTimeout);
+
+      // `webdriver` is set by the browser itself, so the two realms always
+      // agree on it unless a patch reached only one of them.
+      const hasWebDriverDrift =
+        Boolean(main.webdriver) !== Boolean(child.webdriver);
+
+      inconsistent =
+        isSharedRealm ||
+        hasWebDriverDrift ||
+        countNavigatorDrift(main, child) >= MINIMUM_REALM_DRIFT;
     }
   } catch {
     inconsistent = false;
@@ -792,7 +874,14 @@ export function isCanvasTampered(context: ExtendedWindow): boolean {
     canvasContext.fillStyle = "#112233";
     canvasContext.fillRect(0, 0, 1, 1);
     const [red, green, blue, alpha] = canvasContext.getImageData(0, 0, 1, 1).data;
-    return red !== 17 || green !== 34 || blue !== 51 || alpha !== 255;
+    const expected = [17, 34, 51, 255];
+    // Colour management on wide-gamut and HDR displays shifts readback by a
+    // step or two, so only a deviation larger than that counts as rewritten.
+    return [red, green, blue, alpha].some(
+      (channel, index) =>
+        typeof channel !== "number" ||
+        Math.abs(channel - expected[index]!) > CANVAS_CHANNEL_TOLERANCE,
+    );
   } catch {
     return false;
   }
@@ -887,30 +976,16 @@ export function isMediaQueryInconsistent(context: ExtendedWindow): boolean {
   }
 
   const ratio = context.devicePixelRatio;
-  if (
-    typeof ratio === "number" &&
-    ratio > 0 &&
-    (matches(`(min-resolution: ${ratio - 0.02}dppx)`) === false ||
-      matches(`(max-resolution: ${ratio + 0.02}dppx)`) === false)
-  ) {
-    return true;
+  if (typeof ratio !== "number" || !Number.isFinite(ratio) || ratio <= 0) {
+    return false;
   }
 
-  const colorDepth = context.screen.colorDepth;
-  if (typeof colorDepth === "number" && colorDepth > 0) {
-    const bitsPerChannel = Math.round(colorDepth / 3);
-    if (
-      matches(`(min-color: ${bitsPerChannel - 1})`) === false ||
-      matches(`(max-color: ${bitsPerChannel + 1})`) === false
-    ) {
-      return true;
-    }
-  }
-
-  // Phones and tablets always expose at least one coarse pointer.
+  // Page zoom and fractional HiDPI scaling make the ratio a long float, so the
+  // window scales with it instead of being a fixed epsilon.
+  const tolerance = Math.max(ratio * 0.02, 0.02);
   return (
-    /(?:Mobi|Android|iPhone|iPad)/i.test(context.navigator.userAgent) &&
-    matches("(any-pointer: coarse)") === false
+    matches(`(min-resolution: ${ratio - tolerance}dppx)`) === false ||
+    matches(`(max-resolution: ${ratio + tolerance}dppx)`) === false
   );
 }
 

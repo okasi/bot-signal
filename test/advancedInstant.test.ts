@@ -760,18 +760,32 @@ describe("plugin, iframe, stack, and soft consistency checks", () => {
     expect(isIframeInconsistent(consistent.context)).toBe(false);
     expect(consistent.remove).toHaveBeenCalledOnce();
 
+    // `webdriver` is browser-set, so a single difference is already decisive.
+    expect(isIframeInconsistent(iframeContext({ webdriver: true }).context)).toBe(
+      true,
+    );
+
+    // One drifting Navigator value is what an extension does, not a spoofer.
     for (const overrides of [
-      { webdriver: true },
       { userAgent: "different" },
       { platform: "Linux" },
       { languages: ["sv-SE"] },
       { hardwareConcurrency: 99 },
     ]) {
+      expect(isIframeInconsistent(iframeContext(overrides).context)).toBe(false);
+    }
+
+    // Two or more together are a spoofed persona.
+    for (const overrides of [
+      { userAgent: "different", platform: "Linux" },
+      { languages: ["sv-SE"], hardwareConcurrency: 99 },
+      { platform: "Linux", hardwareConcurrency: 99 },
+    ]) {
       expect(isIframeInconsistent(iframeContext(overrides).context)).toBe(true);
     }
   });
 
-  it("detects proxied iframe realms and missing iframe Chrome state", () => {
+  it("detects proxied iframe realms and ignores iframe Chrome state", () => {
     const sharedNavigator = iframeContext();
     sharedNavigator.iframe.contentWindow.navigator = sharedNavigator.context.navigator;
     expect(isIframeInconsistent(sharedNavigator.context)).toBe(true);
@@ -795,19 +809,11 @@ describe("plugin, iframe, stack, and soft consistency checks", () => {
     };
     expect(isIframeInconsistent(sharedWindow.context)).toBe(true);
 
+    // Chromium forks and Electron legitimately omit `chrome` on a fresh
+    // about:blank frame, so its absence there is not evidence of anything.
     const missingChrome = iframeContext();
     delete (missingChrome.iframe.contentWindow as { chrome?: object }).chrome;
-    expect(isIframeInconsistent(missingChrome.context)).toBe(true);
-
-    const firefoxApplicationGlobal = iframeContext();
-    const firefoxUserAgent = "Mozilla/5.0 Firefox/128.0";
-    firefoxApplicationGlobal.context.navigator.userAgent = firefoxUserAgent;
-    firefoxApplicationGlobal.iframe.contentWindow.navigator.userAgent =
-      firefoxUserAgent;
-    delete (
-      firefoxApplicationGlobal.iframe.contentWindow as { chrome?: object }
-    ).chrome;
-    expect(isIframeInconsistent(firefoxApplicationGlobal.context)).toBe(false);
+    expect(isIframeInconsistent(missingChrome.context)).toBe(false);
   });
 
   it("treats unavailable or blocked iframes as not applicable", () => {
@@ -944,10 +950,15 @@ describe("plugin, iframe, stack, and soft consistency checks", () => {
     };
 
     expect(isCanvasTampered(withCanvas([17, 34, 51, 255]))).toBe(false);
-    expect(isCanvasTampered(withCanvas([18, 34, 51, 255]))).toBe(true);
-    expect(isCanvasTampered(withCanvas([17, 35, 51, 255]))).toBe(true);
-    expect(isCanvasTampered(withCanvas([17, 34, 52, 255]))).toBe(true);
-    expect(isCanvasTampered(withCanvas([17, 34, 51, 254]))).toBe(true);
+    // Colour management and privacy noise stay inside the tolerance.
+    expect(isCanvasTampered(withCanvas([18, 35, 52, 254]))).toBe(false);
+    expect(isCanvasTampered(withCanvas([20, 37, 54, 252]))).toBe(false);
+    // A rewritten readback moves further than any display pipeline does.
+    expect(isCanvasTampered(withCanvas([21, 34, 51, 255]))).toBe(true);
+    expect(isCanvasTampered(withCanvas([17, 38, 51, 255]))).toBe(true);
+    expect(isCanvasTampered(withCanvas([17, 34, 55, 255]))).toBe(true);
+    expect(isCanvasTampered(withCanvas([17, 34, 51, 251]))).toBe(true);
+    expect(isCanvasTampered(withCanvas([0, 0, 0, 0]))).toBe(true);
     expect(isCanvasTampered(withCanvas(null))).toBe(false);
     const blocked = createContext();
     blocked.document.createElement = vi.fn(() => {
@@ -1350,11 +1361,10 @@ describe("async realm and browser checks", () => {
   });
 
   it.each([
-    { userAgent: "different" },
-    { language: "sv-SE" },
-    { languages: ["sv-SE"] },
-    { platform: "Linux" },
-    { hardwareConcurrency: 99 },
+    { userAgent: "different", platform: "Linux" },
+    { language: "sv-SE", languages: ["sv-SE"], platform: "Linux" },
+    { platform: "Linux", hardwareConcurrency: 99 },
+    { userAgent: "different", languages: ["sv-SE"] },
   ])("detects worker Navigator mismatch %#", async (override) => {
     const { context, WorkerMock } = createWorkerContext();
     const resultPromise = checkWorkerConsistency(context);
@@ -1364,6 +1374,22 @@ describe("async realm and browser checks", () => {
     await expect(resultPromise).resolves.toEqual({
       isWorkerInconsistent: true,
       isCdpDetectedInWorker: null,
+    });
+  });
+
+  it.each([
+    { userAgent: "different" },
+    { language: "sv-SE", languages: ["sv-SE"] },
+    { platform: "Linux" },
+    { hardwareConcurrency: 99 },
+  ])("tolerates a single worker Navigator difference %#", async (override) => {
+    const { context, WorkerMock } = createWorkerContext();
+    const resultPromise = checkWorkerConsistency(context);
+    WorkerMock.instances.at(-1)!.onmessage?.({
+      data: { ...cleanWorkerSnapshot(context), ...override, cdpDetected: false },
+    } as unknown as MessageEvent);
+    await expect(resultPromise).resolves.toMatchObject({
+      isWorkerInconsistent: false,
     });
   });
 
@@ -1659,40 +1685,32 @@ describe("engine, GPU, and display consistency", () => {
   }
 
   it("flags media queries that contradict devicePixelRatio", () => {
+    // devicePixelRatio 2 gives a 2% window, so the queries land on 1.96/2.04.
     expect(
       isMediaQueryInconsistent(
-        withMediaQueries({ "(min-resolution: 1.98dppx)": false }),
+        withMediaQueries({ "(min-resolution: 1.96dppx)": false }),
       ),
     ).toBe(true);
     expect(
       isMediaQueryInconsistent(
-        withMediaQueries({ "(max-resolution: 2.02dppx)": false }),
+        withMediaQueries({ "(max-resolution: 2.04dppx)": false }),
       ),
     ).toBe(true);
   });
 
-  it("flags media queries that contradict the colour depth", () => {
-    expect(
-      isMediaQueryInconsistent(withMediaQueries({ "(min-color: 7)": false })),
-    ).toBe(true);
-    expect(
-      isMediaQueryInconsistent(withMediaQueries({ "(max-color: 9)": false })),
-    ).toBe(true);
-  });
-
-  it("flags a mobile user agent without any coarse pointer", () => {
+  it("ignores an unusable devicePixelRatio", () => {
     expect(
       isMediaQueryInconsistent(
-        withMediaQueries(
-          { "(any-pointer: coarse)": false },
-          {
-            navigator: {
-              userAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 8) Mobile",
-            } as ExtendedNavigator,
-          },
-        ),
+        withMediaQueries({}, { devicePixelRatio: 0 } as Partial<ExtendedWindow>),
       ),
-    ).toBe(true);
+    ).toBe(false);
+    expect(
+      isMediaQueryInconsistent(
+        withMediaQueries({}, {
+          devicePixelRatio: Number.NaN,
+        } as Partial<ExtendedWindow>),
+      ),
+    ).toBe(false);
   });
 
   it("accepts consistent media queries and skips unsupported engines", () => {
@@ -1714,7 +1732,6 @@ describe("engine, GPU, and display consistency", () => {
             }
             throw new Error("blocked");
           }) as ExtendedWindow["matchMedia"],
-          screen: { width: 1920, height: 1080, colorDepth: 0 } as Screen,
         } as Partial<ExtendedWindow>),
       ),
     ).toBe(false);

@@ -1,3 +1,4 @@
+import { MINIMUM_REALM_DRIFT, countNavigatorDrift } from "./checks.js";
 import type { ExtendedWindow } from "./types.js";
 import { isChromiumBrowser } from "./webgpu.js";
 
@@ -191,18 +192,18 @@ export async function checkHighEntropyUserAgentData(
   }
 }
 
+/**
+ * Worker and main realm disagree on at least {@link MINIMUM_REALM_DRIFT}
+ * Navigator values. One difference on its own is not enough: extensions —
+ * including the ones Chromium forks such as Opera ship built in — rewrite a
+ * single value in the document without reaching workers.
+ */
 function compareWorkerSnapshot(
   context: ExtendedWindow,
   snapshot: WorkerNavigatorSnapshot,
 ): boolean {
-  const navigator = context.navigator;
   return (
-    navigator.userAgent !== snapshot.userAgent ||
-    navigator.language !== snapshot.language ||
-    JSON.stringify(Array.from(navigator.languages ?? [])) !==
-      JSON.stringify(snapshot.languages) ||
-    navigator.platform !== snapshot.platform ||
-    navigator.hardwareConcurrency !== snapshot.hardwareConcurrency
+    countNavigatorDrift(context.navigator, snapshot) >= MINIMUM_REALM_DRIFT
   );
 }
 

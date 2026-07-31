@@ -266,11 +266,11 @@ applications can reuse those global names.
 | `isNativeFunctionTampered` | 0.8 | Native functions or Navigator getters were patched |
 | `isNavigatorIdentityInconsistent` | 0.65 | UA conflicts with Navigator vendor/platform/product/touch claims |
 | `isPluginArrayInconsistent` | 0.65 | Plugin/MIME arrays or entries have non-native prototypes |
-| `isIframeInconsistent` | 0.8 | Realm identity, timers, injected `self.get`, Chrome state, or Navigator differs in a fresh iframe |
+| `isIframeInconsistent` | 0.8 | Shared realm objects, injected `self.get`, `webdriver` drift, or **two or more** Navigator values differing in a fresh iframe |
 | `isErrorStackAutomation` | 0.85 | Error stack contains an automation source marker |
 | `isEngineInconsistent` | 0.8 | `eval.toString().length` (33 in V8, 37 in SpiderMonkey/JSC) or SpiderMonkey-only globals contradict the browser the UA claims |
 | `isGpuPlatformMismatch` | 0.6 | WebGL renderer names Direct3D off Windows, Metal off Apple, or Adreno/Mali off Android |
-| `isMediaQueryInconsistent` | 0.5 | CSS `resolution`/`color`/`any-pointer` queries contradict `devicePixelRatio`, `screen.colorDepth`, or a mobile UA |
+| `isMediaQueryInconsistent` | 0.5 | The CSS `resolution` query contradicts `devicePixelRatio` (2% tolerance for zoom and fractional scaling) |
 | `isLanguageInconsistent` | 0.45 | `language` disagrees with `languages[0]` |
 | `isPluginMimeTypeInconsistent` | 0.45 | Plugins and MIME types were patched inconsistently |
 | `isScreenGeometryInconsistent` | 0.45 | `availWidth`/`availHeight` exceed the screen, or an impossible colour depth |
@@ -283,14 +283,23 @@ applications can reuse those global names.
 | `isSuspiciousHardware` | 0.3 | `deviceMemory` off the power-of-two grid, or an impossible CPU count |
 | `isZeroConnectionRtt` | 0.2 | Zero Network Information RTT outside Android |
 | `isDefaultAutomationViewport` | 0.2 | 800×600 or 1280×720 screen/viewport default |
-| `isCanvasTampered` | 0.2 | Deterministic canvas pixel changes on readback |
+| `isCanvasTampered` | 0.2 | Deterministic canvas pixel moves more than ±3 per channel on readback |
 | `isShaderF16Supported` | 0.3 | Async — missing WebGPU `shader-f16` on Chromium |
 | `isCdpDetected` | 0.25 | Async — CDP serialized an `Error` object (deduplicated with worker CDP) |
 | `isNotificationPermissionInconsistent` | 0.55 | Async — Notification and Permissions states contradict |
 | `isHighEntropyUserAgentDataMismatch` | 0.65 | Async — high-entropy UA-CH conflicts with the UA |
-| `isWorkerInconsistent` | 0.8 | Async — worker Navigator differs from the main realm |
+| `isWorkerInconsistent` | 0.8 | Async — **two or more** worker Navigator values differ from the main realm |
 | `isCdpDetectedInWorker` | 0.25 | Async — CDP serialized an `Error` in a worker (deduplicated with page CDP) |
 | `isMissingMediaDevices` | 0.3 | Async — desktop Chromium enumerated no audio or video devices |
+
+The two cross-realm checks (`isIframeInconsistent`, `isWorkerInconsistent`)
+require **two or more** Navigator values to differ before they fire. Browser
+extensions — including the ones Chromium forks such as Opera, Brave, and Edge
+ship built in — routinely rewrite a single value in the top document without
+reaching workers or `about:blank` frames, while spoofing frameworks install a
+whole persona. Realm-identity tampering and `navigator.webdriver` drift still
+fire on their own, and the absence of `window.chrome` inside a fresh frame is
+ignored entirely because Chromium forks and Electron do that legitimately.
 
 Signals weighted below the 0.5 threshold are soft: individually they flag but
 don't block, so common false-positive cases (in-app browsers, kiosk fullscreen,
