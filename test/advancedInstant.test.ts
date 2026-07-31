@@ -756,7 +756,7 @@ describe("plugin, iframe, stack, and soft consistency checks", () => {
     return { context, iframe, remove };
   }
 
-  it("compares fresh iframe Navigator values and cleans up", () => {
+  it("ignores Navigator values a content script could rewrite", () => {
     const consistent = iframeContext();
     expect(isIframeInconsistent(consistent.context)).toBe(false);
     expect(consistent.remove).toHaveBeenCalledOnce();
@@ -766,35 +766,26 @@ describe("plugin, iframe, stack, and soft consistency checks", () => {
       true,
     );
 
-    // What fingerprint protection does to a single realm: a reduced core
-    // count, a normalised locale region, a rewritten UA that still names the
-    // same OS and version. None of it moves the realm to another machine.
+    // An `about:blank` frame is the realm every content script reaches, so no
+    // Navigator value it reports is evidence on its own. Persona spoofing is
+    // covered from the worker realm instead, which content scripts cannot
+    // reach — see isWorkerInconsistent.
     for (const overrides of [
       { hardwareConcurrency: 99 },
-      { languages: ["en-GB", "en"] },
-      { language: "en-GB" },
-      { platform: "Win32 " },
-      { userAgent: `${CHROME_UA} Opera` },
-      { hardwareConcurrency: 99, languages: ["en-GB"] },
+      { languages: ["sv-SE"] },
+      { language: "sv-SE" },
+      { platform: "Linux x86_64" },
+      { userAgent: CHROME_UA.replace("Windows NT 10.0; Win64; x64", "X11; Linux x86_64") },
+      { userAgent: CHROME_UA.replace("Chrome/121", "Chrome/120") },
+      { userAgent: "different", languages: ["sv-SE"], platform: "Linux" },
     ]) {
       expect(isIframeInconsistent(iframeContext(overrides).context)).toBe(false);
     }
 
-    // Decisive on its own: the realms describe different machines or builds.
-    for (const overrides of [
-      { platform: "Linux x86_64" },
-      { userAgent: CHROME_UA.replace("Windows NT 10.0; Win64; x64", "Macintosh; Intel Mac OS X 10_15_7") },
-      { userAgent: CHROME_UA.replace("Chrome/121", "Chrome/120") },
-    ]) {
-      expect(isIframeInconsistent(iframeContext(overrides).context)).toBe(true);
-    }
-
-    // Two corroborating differences together still count.
-    expect(
-      isIframeInconsistent(
-        iframeContext({ userAgent: "different", languages: ["sv-SE"] }).context,
-      ),
-    ).toBe(true);
+    // `webdriver` is browser-set, so the realms only disagree under a patch.
+    expect(isIframeInconsistent(iframeContext({ webdriver: true }).context)).toBe(
+      true,
+    );
   });
 
   it("detects proxied iframe realms and ignores iframe Chrome state", () => {
@@ -802,17 +793,19 @@ describe("plugin, iframe, stack, and soft consistency checks", () => {
     sharedNavigator.iframe.contentWindow.navigator = sharedNavigator.context.navigator;
     expect(isIframeInconsistent(sharedNavigator.context)).toBe(true);
 
+    // Shared timers and an injected `self.get` are both reachable by content
+    // scripts in an about:blank frame, so neither counts as evidence.
     const sharedTimer = iframeContext();
     Object.assign(sharedTimer.iframe.contentWindow, {
       setTimeout: sharedTimer.context.setTimeout,
     });
-    expect(isIframeInconsistent(sharedTimer.context)).toBe(true);
+    expect(isIframeInconsistent(sharedTimer.context)).toBe(false);
 
     const selfGetHook = iframeContext();
     Object.assign(selfGetHook.iframe.contentWindow, {
       self: { get() {} },
     });
-    expect(isIframeInconsistent(selfGetHook.context)).toBe(true);
+    expect(isIframeInconsistent(selfGetHook.context)).toBe(false);
 
     const sharedWindow = iframeContext();
     sharedWindow.iframe.contentWindow = sharedWindow.context as unknown as {

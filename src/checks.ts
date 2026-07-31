@@ -797,7 +797,28 @@ export function hasRealmPersonaMismatch(
   return corroborating >= MINIMUM_REALM_DRIFT;
 }
 
-/** A fresh same-origin iframe exposes Navigator values that differ from the main realm. */
+/**
+ * A fresh same-origin iframe hands back the page's own realm, or disagrees
+ * with it about `navigator.webdriver`.
+ *
+ * Only signals that page and extension content cannot produce are used. An
+ * `about:blank` frame is the one realm every content script reaches — ad
+ * blockers, privacy tools, and the extensions Chromium forks ship built in all
+ * inject there — so anything that injected code could define or proxy is out:
+ *
+ * - Navigator values are not compared here at all. That is exactly what
+ *   fingerprint protection rewrites inconsistently between realms, and
+ *   `isWorkerInconsistent` already covers persona spoofing from a worker,
+ *   which content scripts do not touch.
+ * - `self.get` is not probed, since injected code can define it.
+ * - Shared timer functions are not treated as evidence, since a tool that
+ *   neuters iframes can proxy them onto the parent's.
+ *
+ * What remains cannot happen in a real browser: a frame whose `window` or
+ * `navigator` *is* the page's object is a stealth patch returning the parent
+ * realm, and `webdriver` is set by the browser itself, so the two realms only
+ * disagree when a patch reached one and not the other.
+ */
 export function isIframeInconsistent(context: ExtendedWindow): boolean {
   const parent = context.document.documentElement ?? context.document.body;
   if (!parent?.appendChild) {
@@ -813,28 +834,12 @@ export function isIframeInconsistent(context: ExtendedWindow): boolean {
     if (frame) {
       const main = context.navigator;
       const child = frame.navigator;
-      const frameGet = (frame.self as (Window & { get?: unknown }) | undefined)
-        ?.get;
 
-      // A fresh realm gets its own window, navigator, and function objects.
-      // Sharing any of them means something re-pointed the iframe at the page,
-      // and no browser or extension can produce that.
-      const isSharedRealm =
-        frame === context ||
-        child === main ||
-        (typeof frameGet === "function" && frameGet.toString().length > 5) ||
-        (typeof frame.setTimeout === "function" &&
-          frame.setTimeout === context.setTimeout);
-
-      // `webdriver` is set by the browser itself, so the two realms always
-      // agree on it unless a patch reached only one of them.
+      const isParentRealm = frame === context || child === main;
       const hasWebDriverDrift =
         Boolean(main.webdriver) !== Boolean(child.webdriver);
 
-      inconsistent =
-        isSharedRealm ||
-        hasWebDriverDrift ||
-        hasRealmPersonaMismatch(main, child);
+      inconsistent = isParentRealm || hasWebDriverDrift;
     }
   } catch {
     inconsistent = false;

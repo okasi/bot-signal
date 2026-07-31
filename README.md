@@ -266,7 +266,7 @@ applications can reuse those global names.
 | `isNativeFunctionTampered` | 0.8 | Native functions or Navigator getters were patched |
 | `isNavigatorIdentityInconsistent` | 0.65 | UA conflicts with Navigator vendor/platform/product/touch claims |
 | `isPluginArrayInconsistent` | 0.65 | Plugin/MIME arrays or entries have non-native prototypes |
-| `isIframeInconsistent` | 0.8 | Shared realm objects, injected `self.get`, `webdriver` drift, or a fresh iframe describing a different OS/browser than the page |
+| `isIframeInconsistent` | 0.8 | A fresh iframe hands back the page's own `window`/`navigator`, or disagrees about `navigator.webdriver` |
 | `isErrorStackAutomation` | 0.85 | Error stack contains an automation source marker |
 | `isEngineInconsistent` | 0.8 | `eval.toString().length` (33 in V8, 37 in SpiderMonkey/JSC) or SpiderMonkey-only globals contradict the browser the UA claims |
 | `isGpuPlatformMismatch` | 0.6 | WebGL renderer names Direct3D off Windows, Metal off Apple, or Adreno/Mali off Android |
@@ -292,18 +292,24 @@ applications can reuse those global names.
 | `isCdpDetectedInWorker` | 0.25 | Async — CDP serialized an `Error` in a worker (deduplicated with page CDP) |
 | `isMissingMediaDevices` | 0.3 | Async — desktop Chromium enumerated no audio or video devices |
 
-**Browser fingerprint protection is not automation.** The two cross-realm
-checks (`isIframeInconsistent`, `isWorkerInconsistent`) compare what the realms
-*mean*, not their strings. Protection rewrites values per realm by design —
-Opera 133 reports 2 cores and a normalised locale to the page while its workers
-and `about:blank` frames report the machine's real 10 — so byte equality flags
-stock browsers. A realm mismatch is only counted when the realms describe a
-different **OS family**, a different **browser major version**, or when two
-softer values (primary language subtag, platform/UA string) disagree together.
-`navigator.hardwareConcurrency` is not compared at all. Realm-identity tampering
-and `navigator.webdriver` drift still fire on their own, and a missing
-`window.chrome` inside a fresh frame is ignored entirely because Chromium forks
-and Electron do that legitimately.
+**Browser fingerprint protection is not automation.** Protection rewrites
+Navigator values per realm by design — Opera 133 reports 2 cores and a
+normalised locale to the page while its workers report the machine's real 10 —
+so the two cross-realm checks are deliberately split by how reachable each realm
+is:
+
+- `isWorkerInconsistent` carries the persona comparison, because a dedicated
+  worker is a realm content scripts cannot reach. It compares what the values
+  *mean*, not their bytes: a different **OS family** or **browser major
+  version** counts on its own, primary language subtag and platform/UA strings
+  need two to agree, and `hardwareConcurrency` is not compared at all.
+- `isIframeInconsistent` compares no Navigator values, because an
+  `about:blank` frame is the realm every content script reaches — ad blockers,
+  privacy tools, and the extensions Chromium forks ship built in all inject
+  there. It fires only when the frame hands back the page's own `window` or
+  `navigator`, or when the realms disagree about `navigator.webdriver`. Neither
+  is reachable by injected code. A missing `window.chrome` inside a fresh frame
+  is ignored entirely, since Chromium forks and Electron do that legitimately.
 
 For the same reason `isMediaQueryInconsistent` compares only `resolution`
 against `devicePixelRatio` — Opera reports `screen.colorDepth` 24 on a 10-bit

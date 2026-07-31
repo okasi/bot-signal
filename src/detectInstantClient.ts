@@ -113,7 +113,7 @@ const INSTANT_SIGNAL_SPECS: InstantSignalSpec[] = [
   { id: "isNativeFunctionTampered", description: "Native browser functions or Navigator getters were patched", weight: 0.8, confidence: "high" },
   { id: "isNavigatorIdentityInconsistent", description: "Navigator vendor/platform/product/touch claims conflict with the User-Agent", weight: 0.65, confidence: "high" },
   { id: "isPluginArrayInconsistent", description: "Plugin or MIME-type arrays have non-native prototypes", weight: 0.65, confidence: "high" },
-  { id: "isIframeInconsistent", description: "A fresh iframe shares realm objects, or describes a different OS or browser than the page", weight: 0.8, confidence: "high" },
+  { id: "isIframeInconsistent", description: "A fresh iframe hands back the page's own realm, or disagrees about navigator.webdriver", weight: 0.8, confidence: "high" },
   { id: "isErrorStackAutomation", description: "Error stack contains an automation source marker", weight: 0.85, confidence: "high" },
   { id: "isEngineInconsistent", description: "JavaScript engine identity conflicts with the browser the User-Agent claims", weight: 0.8, confidence: "high" },
   { id: "isGpuPlatformMismatch", description: "WebGL renderer names a graphics backend the claimed platform cannot run", weight: 0.6, confidence: "high" },

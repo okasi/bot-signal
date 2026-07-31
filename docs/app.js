@@ -77,7 +77,7 @@ const CHECKS = [
   ["isNativeFunctionTampered", "Native functions or Navigator getters were patched", "bad"],
   ["isNavigatorIdentityInconsistent", "Navigator vendor, platform, product, or touch claims conflict with the UA", "bad"],
   ["isPluginArrayInconsistent", "Plugin or MIME arrays use non-native prototypes", "bad"],
-  ["isIframeInconsistent", "Shared realm objects, webdriver drift, or a fresh iframe describing a different OS or browser", "bad"],
+  ["isIframeInconsistent", "A fresh iframe hands back the page's own window or navigator, or disagrees about webdriver", "bad"],
   ["isErrorStackAutomation", "Error stack contains an automation source marker", "bad"],
   ["isEngineInconsistent", "JavaScript engine identity conflicts with the browser the User-Agent claims", "bad"],
   ["isGpuPlatformMismatch", "WebGL renderer names a graphics backend the claimed platform cannot run", "bad"],
