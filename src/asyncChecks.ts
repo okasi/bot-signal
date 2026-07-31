@@ -9,10 +9,7 @@ export interface WorkerChecks {
 
 interface WorkerNavigatorSnapshot {
   userAgent: string;
-  language: string;
-  languages: string[];
   platform: string;
-  hardwareConcurrency: number;
   cdpDetected: boolean;
 }
 
@@ -34,10 +31,7 @@ const WORKER_SOURCE = `
   setTimeout(() => {
     self.postMessage({
       userAgent: navigator.userAgent,
-      language: navigator.language,
-      languages: Array.from(navigator.languages || []),
       platform: navigator.platform,
-      hardwareConcurrency: navigator.hardwareConcurrency,
       cdpDetected,
     });
   }, 0);
@@ -193,9 +187,9 @@ export async function checkHighEntropyUserAgentData(
 }
 
 /**
- * Worker and document describe different machines or different browsers.
- * Compared by meaning rather than by string, because fingerprint protection
- * rewrites values in the document that it does not rewrite in workers.
+ * Worker and document describe different operating systems. Only the OS is
+ * compared: everything softer is something fingerprint protection legitimately
+ * rewrites in the document without rewriting it in the worker.
  */
 function compareWorkerSnapshot(
   context: ExtendedWindow,

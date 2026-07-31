@@ -146,7 +146,7 @@ const INSTANT_ASYNC_SIGNAL_SPECS: AsyncSignalSpec[] = [
   { id: "isCdpDetected", description: "Chrome DevTools Protocol serialized an Error object", weight: 0.25, confidence: "medium" },
   { id: "isNotificationPermissionInconsistent", description: "Notification and Permissions API states contradict", weight: 0.55, confidence: "high" },
   { id: "isHighEntropyUserAgentDataMismatch", description: "High-entropy Client Hints conflict with the User-Agent", weight: 0.65, confidence: "high" },
-  { id: "isWorkerInconsistent", description: "The worker realm describes a different OS or browser than the page", weight: 0.8, confidence: "high" },
+  { id: "isWorkerInconsistent", description: "The worker realm names a different operating system than the page", weight: 0.8, confidence: "high" },
   { id: "isCdpDetectedInWorker", description: "Chrome DevTools Protocol serialized an Error inside a worker", weight: 0.25, confidence: "medium" },
   { id: "isMissingMediaDevices", description: "Desktop Chromium enumerated no audio or video devices", weight: 0.3, confidence: "low" },
 ];

@@ -1368,9 +1368,9 @@ describe("async realm and browser checks", () => {
   it.each([
     { platform: "Linux x86_64" },
     { userAgent: CHROME_UA.replace("Windows NT 10.0; Win64; x64", "X11; Linux x86_64") },
-    { userAgent: CHROME_UA.replace("Chrome/121", "Chrome/118") },
-    { userAgent: "different", languages: ["sv-SE"] },
-  ])("detects worker persona mismatch %#", async (override) => {
+    { userAgent: CHROME_UA.replace("Windows NT 10.0; Win64; x64", "Macintosh; Intel Mac OS X 10_15_7") },
+    { platform: "MacIntel" },
+  ])("detects a worker on a different operating system %#", async (override) => {
     const { context, WorkerMock } = createWorkerContext();
     const resultPromise = checkWorkerConsistency(context);
     WorkerMock.instances.at(-1)!.onmessage?.({
@@ -1383,12 +1383,15 @@ describe("async realm and browser checks", () => {
   });
 
   it.each([
-    // Opera reports a reduced core count to the document but not to workers.
+    // Everything fingerprint protection rewrites in the document but not the
+    // worker: core count, locale, User-Agent and platform strings, and the
+    // browser version that UA reduction and site-compat overrides change.
     { hardwareConcurrency: 99 },
-    { language: "en-GB", languages: ["en-GB", "en"] },
+    { language: "sv-SE", languages: ["sv-SE", "en"] },
     { userAgent: `${CHROME_UA} OPR/133.0.0.0` },
+    { userAgent: CHROME_UA.replace("Chrome/121", "Chrome/118") },
     { platform: "Win32 " },
-    { hardwareConcurrency: 99, languages: ["en-GB"] },
+    { language: "sv-SE", userAgent: `${CHROME_UA} OPR/133.0.0.0` },
   ])("tolerates worker differences a stock browser produces %#", async (override) => {
     const { context, WorkerMock } = createWorkerContext();
     const resultPromise = checkWorkerConsistency(context);
@@ -2050,56 +2053,41 @@ describe("cross-realm persona comparison", () => {
   const ANDROID_UA = "Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/121.0.0.0 Mobile";
   const IOS_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) Version/17.4 Safari/605.1.15";
   const CROS_UA = "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) Chrome/121.0.0.0";
+  const MAC_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/121.0.0.0";
+  const LINUX_UA = "Mozilla/5.0 (X11; Linux x86_64) Chrome/121.0.0.0";
 
-  it("treats a different OS family as decisive", () => {
-    expect(
-      hasRealmPersonaMismatch({ userAgent: ANDROID_UA }, { userAgent: IOS_UA }),
-    ).toBe(true);
-    expect(
-      hasRealmPersonaMismatch({ userAgent: CROS_UA }, { userAgent: ANDROID_UA }),
-    ).toBe(true);
-    expect(
-      hasRealmPersonaMismatch({ userAgent: IOS_UA }, { userAgent: CROS_UA }),
-    ).toBe(true);
+  it("flags realms on different operating systems", () => {
+    expect(hasRealmPersonaMismatch({ userAgent: ANDROID_UA }, { userAgent: IOS_UA })).toBe(true);
+    expect(hasRealmPersonaMismatch({ userAgent: CROS_UA }, { userAgent: ANDROID_UA })).toBe(true);
+    expect(hasRealmPersonaMismatch({ userAgent: IOS_UA }, { userAgent: CROS_UA })).toBe(true);
+    expect(hasRealmPersonaMismatch({ userAgent: MAC_UA }, { userAgent: LINUX_UA })).toBe(true);
+    expect(hasRealmPersonaMismatch({ platform: "MacIntel" }, { platform: "Linux x86_64" })).toBe(true);
   });
 
-  it("accepts realms that agree on family and version", () => {
-    expect(
-      hasRealmPersonaMismatch({ userAgent: ANDROID_UA }, { userAgent: ANDROID_UA }),
-    ).toBe(false);
+  it("accepts realms that agree on the operating system", () => {
+    expect(hasRealmPersonaMismatch({ userAgent: ANDROID_UA }, { userAgent: ANDROID_UA })).toBe(false);
     expect(hasRealmPersonaMismatch({}, {})).toBe(false);
     // An unknown value on either side cannot contradict anything.
-    expect(
-      hasRealmPersonaMismatch({ userAgent: ANDROID_UA }, { userAgent: undefined }),
-    ).toBe(false);
-    expect(
-      hasRealmPersonaMismatch({ platform: "Win32" }, { platform: undefined }),
-    ).toBe(false);
-    expect(
-      hasRealmPersonaMismatch({ userAgent: "opaque" }, { userAgent: "other" }),
-    ).toBe(false);
+    expect(hasRealmPersonaMismatch({ userAgent: MAC_UA }, { userAgent: undefined })).toBe(false);
+    expect(hasRealmPersonaMismatch({ platform: "Win32" }, { platform: undefined })).toBe(false);
+    expect(hasRealmPersonaMismatch({ userAgent: "opaque" }, { userAgent: "other" })).toBe(false);
   });
 
-  it("falls back to navigator.language when languages is absent", () => {
-    // Region differences normalise away; only the primary subtag counts.
+  it("ignores what fingerprint protection rewrites per realm", () => {
+    const OPERA_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 OPR/133.0.0.0";
+    // Stripped brand token, a different Chrome major from UA reduction or a
+    // per-site override, and a rewritten platform string all stay on macOS.
     expect(
       hasRealmPersonaMismatch(
-        { language: "en-GB", userAgent: "opaque" },
-        { language: "en-US", userAgent: "other" },
+        { userAgent: OPERA_UA.replace(" OPR/133.0.0.0", ""), platform: "MacIntel" },
+        { userAgent: OPERA_UA, platform: "MacIntel" },
       ),
     ).toBe(false);
     expect(
       hasRealmPersonaMismatch(
-        { language: "en-GB", userAgent: "opaque" },
-        { language: "sv-SE", userAgent: "other" },
+        { userAgent: OPERA_UA.replace("Chrome/149", "Chrome/120"), platform: "MacIntel" },
+        { userAgent: OPERA_UA, platform: "MacIntel" },
       ),
-    ).toBe(true);
-    // An empty languages list falls through to the singular value.
-    expect(
-      hasRealmPersonaMismatch(
-        { languages: [], language: "en", userAgent: "opaque" },
-        { languages: [], language: "sv", userAgent: "other" },
-      ),
-    ).toBe(true);
+    ).toBe(false);
   });
 });

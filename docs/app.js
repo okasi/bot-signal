@@ -99,7 +99,7 @@ const CHECKS = [
   ["isCdpDetected", "CDP serialized an Error object (async run)", "async-bad"],
   ["isNotificationPermissionInconsistent", "Notification and Permissions API states contradict (async run)", "async-bad"],
   ["isHighEntropyUserAgentDataMismatch", "High-entropy Client Hints conflict with the UA (async run)", "async-bad"],
-  ["isWorkerInconsistent", "The worker realm describes a different OS or browser than the page (async run)", "async-bad"],
+  ["isWorkerInconsistent", "The worker realm names a different operating system than the page (async run)", "async-bad"],
   ["isCdpDetectedInWorker", "CDP serialized an Error inside a worker (async run)", "async-bad"],
   ["isMissingMediaDevices", "Desktop Chromium enumerated no audio or video devices (async run)", "async-bad"],
   ["isChromium", "Chromium-based browser — decides which checks apply", "info"],

@@ -288,7 +288,7 @@ applications can reuse those global names.
 | `isCdpDetected` | 0.25 | Async — CDP serialized an `Error` object (deduplicated with worker CDP) |
 | `isNotificationPermissionInconsistent` | 0.55 | Async — Notification and Permissions states contradict |
 | `isHighEntropyUserAgentDataMismatch` | 0.65 | Async — high-entropy UA-CH conflicts with the UA |
-| `isWorkerInconsistent` | 0.8 | Async — the worker realm describes a different OS family or browser major version than the page |
+| `isWorkerInconsistent` | 0.8 | Async — the worker realm names a different operating system than the page |
 | `isCdpDetectedInWorker` | 0.25 | Async — CDP serialized an `Error` in a worker (deduplicated with page CDP) |
 | `isMissingMediaDevices` | 0.3 | Async — desktop Chromium enumerated no audio or video devices |
 
@@ -298,11 +298,12 @@ normalised locale to the page while its workers report the machine's real 10 —
 so the two cross-realm checks are deliberately split by how reachable each realm
 is:
 
-- `isWorkerInconsistent` carries the persona comparison, because a dedicated
-  worker is a realm content scripts cannot reach. It compares what the values
-  *mean*, not their bytes: a different **OS family** or **browser major
-  version** counts on its own, primary language subtag and platform/UA strings
-  need two to agree, and `hardwareConcurrency` is not compared at all.
+- `isWorkerInconsistent` compares one thing: whether the two realms name a
+  different **operating system**. Everything softer turned out to be something
+  a stock browser does — protection normalises the locale in the document but
+  not in a worker, and User-Agent reduction and per-site compatibility
+  overrides change the browser version in the document only. Locale, raw
+  strings, browser version, and `hardwareConcurrency` are all left out.
 - `isIframeInconsistent` compares no Navigator values, because an
   `about:blank` frame is the realm every content script reaches — ad blockers,
   privacy tools, and the extensions Chromium forks ship built in all inject

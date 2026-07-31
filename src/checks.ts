@@ -693,8 +693,6 @@ export function isPluginArrayInconsistent(context: ExtendedWindow): boolean {
 /** Navigator values a second realm reports, for identity comparison. */
 export interface RealmNavigatorSnapshot {
   userAgent?: string;
-  language?: string;
-  languages?: readonly string[];
   platform?: string;
 }
 
@@ -725,76 +723,38 @@ function getOsFamily(userAgent: string | undefined): string | null {
   return null;
 }
 
-/** Major browser version a User-Agent claims, or `null` when it names none. */
-function getBrowserMajorVersion(userAgent: string | undefined): string | null {
-  return (
-    userAgent?.match(/(?:Chrome|Chromium|Firefox|Version)\/(\d+)/)?.[1] ?? null
-  );
-}
 
-/** Primary language subtag, so `en-GB` and `en-US` compare equal. */
-function getPrimaryLanguage(
-  snapshot: RealmNavigatorSnapshot,
-): string | null {
-  const tag = snapshot.languages?.[0] ?? snapshot.language;
-  return tag ? tag.toLowerCase().split("-")[0]! : null;
-}
 
 /** Both values are known and disagree. */
 function contradicts<T>(main: T | null, other: T | null): boolean {
   return main !== null && other !== null && main !== other;
 }
 
-/**
- * How many corroborating Navigator differences must line up before a realm
- * comparison counts. Extensions and fingerprint protection rewrite one value
- * in the top document without touching workers or `about:blank` frames, so a
- * single difference is never enough on its own.
- */
-export const MINIMUM_REALM_DRIFT = 2;
 
 /** Counts Navigator values that differ between the main realm and another one. */
 /**
- * The two realms describe different machines or different browsers.
+ * The two realms describe different operating systems.
  *
- * Values are compared by what they *mean*, not as strings. Fingerprint
- * protection rewrites values per realm on purpose — Opera reports a reduced
- * core count and a normalised locale to the document but not to its workers —
- * so byte equality flags stock browsers. A spoofing framework, by contrast,
- * gives the top realm a whole different persona, which shows up as a different
- * OS family or a different browser major version.
+ * This is the only Navigator disagreement between realms with no legitimate
+ * cause. Everything softer turned out to be something a stock browser does:
+ * fingerprint protection normalises the locale in the document but not in a
+ * worker, and rewrites User-Agent and platform strings unevenly, so locale and
+ * raw-string comparisons flag real people. Browser version is out for the same
+ * reason — User-Agent reduction and per-site compatibility overrides apply to
+ * the document only. `hardwareConcurrency` is not compared at all.
+ *
+ * What survives is the case that matters most in practice: a spoofing
+ * framework claiming Windows to the page while the worker reports the Linux
+ * host it actually runs on.
  */
 export function hasRealmPersonaMismatch(
   main: RealmNavigatorSnapshot,
   other: RealmNavigatorSnapshot,
 ): boolean {
-  // Decisive on its own: no browser feature moves a realm to another OS or
-  // another major version.
-  if (
+  return (
     contradicts(getOsFamily(main.userAgent), getOsFamily(other.userAgent)) ||
-    contradicts(getOsFamily(main.platform), getOsFamily(other.platform)) ||
-    contradicts(
-      getBrowserMajorVersion(main.userAgent),
-      getBrowserMajorVersion(other.userAgent),
-    )
-  ) {
-    return true;
-  }
-
-  // Corroborating: softer values that protection also touches, so two must
-  // disagree before they count.
-  let corroborating = 0;
-  if (contradicts(getPrimaryLanguage(main), getPrimaryLanguage(other))) {
-    corroborating += 1;
-  }
-  if (
-    contradicts(main.platform ?? null, other.platform ?? null) ||
-    contradicts(main.userAgent ?? null, other.userAgent ?? null)
-  ) {
-    corroborating += 1;
-  }
-
-  return corroborating >= MINIMUM_REALM_DRIFT;
+    contradicts(getOsFamily(main.platform), getOsFamily(other.platform))
+  );
 }
 
 /**
