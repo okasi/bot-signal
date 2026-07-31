@@ -113,7 +113,7 @@ const INSTANT_SIGNAL_SPECS: InstantSignalSpec[] = [
   { id: "isNativeFunctionTampered", description: "Native browser functions or Navigator getters were patched", weight: 0.8, confidence: "high" },
   { id: "isNavigatorIdentityInconsistent", description: "Navigator vendor/platform/product/touch claims conflict with the User-Agent", weight: 0.65, confidence: "high" },
   { id: "isPluginArrayInconsistent", description: "Plugin or MIME-type arrays have non-native prototypes", weight: 0.65, confidence: "high" },
-  { id: "isIframeInconsistent", description: "A fresh iframe shares realm objects, or its Navigator values drift from the main realm", weight: 0.8, confidence: "high" },
+  { id: "isIframeInconsistent", description: "A fresh iframe shares realm objects, or describes a different OS or browser than the page", weight: 0.8, confidence: "high" },
   { id: "isErrorStackAutomation", description: "Error stack contains an automation source marker", weight: 0.85, confidence: "high" },
   { id: "isEngineInconsistent", description: "JavaScript engine identity conflicts with the browser the User-Agent claims", weight: 0.8, confidence: "high" },
   { id: "isGpuPlatformMismatch", description: "WebGL renderer names a graphics backend the claimed platform cannot run", weight: 0.6, confidence: "high" },
@@ -146,7 +146,7 @@ const INSTANT_ASYNC_SIGNAL_SPECS: AsyncSignalSpec[] = [
   { id: "isCdpDetected", description: "Chrome DevTools Protocol serialized an Error object", weight: 0.25, confidence: "medium" },
   { id: "isNotificationPermissionInconsistent", description: "Notification and Permissions API states contradict", weight: 0.55, confidence: "high" },
   { id: "isHighEntropyUserAgentDataMismatch", description: "High-entropy Client Hints conflict with the User-Agent", weight: 0.65, confidence: "high" },
-  { id: "isWorkerInconsistent", description: "Two or more worker Navigator values conflict with the main realm", weight: 0.8, confidence: "high" },
+  { id: "isWorkerInconsistent", description: "The worker realm describes a different OS or browser than the page", weight: 0.8, confidence: "high" },
   { id: "isCdpDetectedInWorker", description: "Chrome DevTools Protocol serialized an Error inside a worker", weight: 0.25, confidence: "medium" },
   { id: "isMissingMediaDevices", description: "Desktop Chromium enumerated no audio or video devices", weight: 0.3, confidence: "low" },
 ];

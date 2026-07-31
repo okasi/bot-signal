@@ -1,4 +1,4 @@
-import { MINIMUM_REALM_DRIFT, countNavigatorDrift } from "./checks.js";
+import { hasRealmPersonaMismatch } from "./checks.js";
 import type { ExtendedWindow } from "./types.js";
 import { isChromiumBrowser } from "./webgpu.js";
 
@@ -193,18 +193,15 @@ export async function checkHighEntropyUserAgentData(
 }
 
 /**
- * Worker and main realm disagree on at least {@link MINIMUM_REALM_DRIFT}
- * Navigator values. One difference on its own is not enough: extensions —
- * including the ones Chromium forks such as Opera ship built in — rewrite a
- * single value in the document without reaching workers.
+ * Worker and document describe different machines or different browsers.
+ * Compared by meaning rather than by string, because fingerprint protection
+ * rewrites values in the document that it does not rewrite in workers.
  */
 function compareWorkerSnapshot(
   context: ExtendedWindow,
   snapshot: WorkerNavigatorSnapshot,
 ): boolean {
-  return (
-    countNavigatorDrift(context.navigator, snapshot) >= MINIMUM_REALM_DRIFT
-  );
+  return hasRealmPersonaMismatch(context.navigator, snapshot);
 }
 
 /** Compares Navigator values and the CDP side effect in a dedicated worker. */

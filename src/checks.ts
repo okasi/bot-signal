@@ -690,7 +690,7 @@ export function isPluginArrayInconsistent(context: ExtendedWindow): boolean {
   return false;
 }
 
-/** Navigator values a second realm reports, for drift comparison. */
+/** Navigator values a second realm reports, for identity comparison. */
 export interface RealmNavigatorSnapshot {
   userAgent?: string;
   language?: string;
@@ -698,64 +698,103 @@ export interface RealmNavigatorSnapshot {
   platform?: string;
 }
 
+/** Operating-system family a User-Agent describes, or `null` when unclear. */
+function getOsFamily(userAgent: string | undefined): string | null {
+  if (!userAgent) {
+    return null;
+  }
+  if (/Android/i.test(userAgent)) {
+    return "android";
+  }
+  if (/(?:iPhone|iPad|iPod)/i.test(userAgent)) {
+    return "ios";
+  }
+  if (/CrOS/i.test(userAgent)) {
+    return "cros";
+  }
+  if (/Windows|Win64|Win32|WOW64/i.test(userAgent)) {
+    return "windows";
+  }
+  if (/(?:Macintosh|Mac OS X|MacIntel)/i.test(userAgent)) {
+    return "macos";
+  }
+  if (/Linux|X11/i.test(userAgent)) {
+    return "linux";
+  }
+
+  return null;
+}
+
+/** Major browser version a User-Agent claims, or `null` when it names none. */
+function getBrowserMajorVersion(userAgent: string | undefined): string | null {
+  return (
+    userAgent?.match(/(?:Chrome|Chromium|Firefox|Version)\/(\d+)/)?.[1] ?? null
+  );
+}
+
+/** Primary language subtag, so `en-GB` and `en-US` compare equal. */
+function getPrimaryLanguage(
+  snapshot: RealmNavigatorSnapshot,
+): string | null {
+  const tag = snapshot.languages?.[0] ?? snapshot.language;
+  return tag ? tag.toLowerCase().split("-")[0]! : null;
+}
+
+/** Both values are known and disagree. */
+function contradicts<T>(main: T | null, other: T | null): boolean {
+  return main !== null && other !== null && main !== other;
+}
+
 /**
- * How many Navigator values must drift between realms before it counts.
- *
- * Browser extensions — including the ones Opera, Brave, and Edge ship
- * built in — routinely rewrite a single value in the top document without
- * touching workers or `about:blank` frames. Spoofing frameworks install a
- * whole persona, so requiring two independent differences keeps the signal
- * without firing on an ordinary browser carrying an extension.
+ * How many corroborating Navigator differences must line up before a realm
+ * comparison counts. Extensions and fingerprint protection rewrite one value
+ * in the top document without touching workers or `about:blank` frames, so a
+ * single difference is never enough on its own.
  */
 export const MINIMUM_REALM_DRIFT = 2;
 
 /** Counts Navigator values that differ between the main realm and another one. */
-export function countNavigatorDrift(
+/**
+ * The two realms describe different machines or different browsers.
+ *
+ * Values are compared by what they *mean*, not as strings. Fingerprint
+ * protection rewrites values per realm on purpose — Opera reports a reduced
+ * core count and a normalised locale to the document but not to its workers —
+ * so byte equality flags stock browsers. A spoofing framework, by contrast,
+ * gives the top realm a whole different persona, which shows up as a different
+ * OS family or a different browser major version.
+ */
+export function hasRealmPersonaMismatch(
   main: RealmNavigatorSnapshot,
   other: RealmNavigatorSnapshot,
-): number {
-  let drift = 0;
-
+): boolean {
+  // Decisive on its own: no browser feature moves a realm to another OS or
+  // another major version.
   if (
-    typeof main.userAgent === "string" &&
-    typeof other.userAgent === "string" &&
-    main.userAgent !== other.userAgent
+    contradicts(getOsFamily(main.userAgent), getOsFamily(other.userAgent)) ||
+    contradicts(getOsFamily(main.platform), getOsFamily(other.platform)) ||
+    contradicts(
+      getBrowserMajorVersion(main.userAgent),
+      getBrowserMajorVersion(other.userAgent),
+    )
   ) {
-    drift += 1;
+    return true;
+  }
+
+  // Corroborating: softer values that protection also touches, so two must
+  // disagree before they count.
+  let corroborating = 0;
+  if (contradicts(getPrimaryLanguage(main), getPrimaryLanguage(other))) {
+    corroborating += 1;
   }
   if (
-    Boolean(main.platform) &&
-    typeof other.platform === "string" &&
-    main.platform !== other.platform
+    contradicts(main.platform ?? null, other.platform ?? null) ||
+    contradicts(main.userAgent ?? null, other.userAgent ?? null)
   ) {
-    drift += 1;
-  }
-  // `hardwareConcurrency` is deliberately left out. Browser fingerprint
-  // protection reduces it in the top document and nowhere else — Opera 133
-  // reports 2 cores to the page while its workers and `about:blank` frames
-  // report the machine's real 10 — so cross-realm drift there says nothing
-  // about automation. Patched core counts are still caught by
-  // isNativeFunctionTampered and isSuspiciousHardware.
-
-  // `language` and `languages` move together, so they count once between them.
-  const mainLanguages = main.languages;
-  const otherLanguages = other.languages;
-  const hasLanguagesDrift =
-    mainLanguages !== undefined &&
-    otherLanguages !== undefined &&
-    mainLanguages.length > 0 &&
-    otherLanguages.length > 0 &&
-    JSON.stringify(Array.from(mainLanguages)) !==
-      JSON.stringify(Array.from(otherLanguages));
-  const hasLanguageDrift =
-    Boolean(main.language) &&
-    Boolean(other.language) &&
-    main.language !== other.language;
-  if (hasLanguagesDrift || hasLanguageDrift) {
-    drift += 1;
+    corroborating += 1;
   }
 
-  return drift;
+  return corroborating >= MINIMUM_REALM_DRIFT;
 }
 
 /** A fresh same-origin iframe exposes Navigator values that differ from the main realm. */
@@ -795,7 +834,7 @@ export function isIframeInconsistent(context: ExtendedWindow): boolean {
       inconsistent =
         isSharedRealm ||
         hasWebDriverDrift ||
-        countNavigatorDrift(main, child) >= MINIMUM_REALM_DRIFT;
+        hasRealmPersonaMismatch(main, child);
     }
   } catch {
     inconsistent = false;

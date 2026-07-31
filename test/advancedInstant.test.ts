@@ -32,6 +32,7 @@ import {
   isSuspiciousWindowDimensions,
   isZeroConnectionRtt,
 } from "../src/detectInstantClient.js";
+import { hasRealmPersonaMismatch } from "../src/checks.js";
 import type { ExtendedNavigator, ExtendedWindow } from "../src/types.js";
 
 const CHROME_UA =
@@ -765,34 +766,35 @@ describe("plugin, iframe, stack, and soft consistency checks", () => {
       true,
     );
 
-    // One drifting Navigator value is what an extension does, not a spoofer.
+    // What fingerprint protection does to a single realm: a reduced core
+    // count, a normalised locale region, a rewritten UA that still names the
+    // same OS and version. None of it moves the realm to another machine.
     for (const overrides of [
-      { userAgent: "different" },
-      { platform: "Linux" },
-      { languages: ["sv-SE"] },
+      { hardwareConcurrency: 99 },
+      { languages: ["en-GB", "en"] },
+      { language: "en-GB" },
+      { platform: "Win32 " },
+      { userAgent: `${CHROME_UA} Opera` },
+      { hardwareConcurrency: 99, languages: ["en-GB"] },
     ]) {
       expect(isIframeInconsistent(iframeContext(overrides).context)).toBe(false);
     }
 
-    // Opera reduces hardwareConcurrency in the top document only, so realm
-    // drift there never counts — not even alongside another difference.
-    expect(
-      isIframeInconsistent(iframeContext({ hardwareConcurrency: 99 }).context),
-    ).toBe(false);
-    expect(
-      isIframeInconsistent(
-        iframeContext({ hardwareConcurrency: 99, platform: "Linux" }).context,
-      ),
-    ).toBe(false);
-
-    // Two or more of the remaining values together are a spoofed persona.
+    // Decisive on its own: the realms describe different machines or builds.
     for (const overrides of [
-      { userAgent: "different", platform: "Linux" },
-      { languages: ["sv-SE"], platform: "Linux" },
-      { userAgent: "different", languages: ["sv-SE"] },
+      { platform: "Linux x86_64" },
+      { userAgent: CHROME_UA.replace("Windows NT 10.0; Win64; x64", "Macintosh; Intel Mac OS X 10_15_7") },
+      { userAgent: CHROME_UA.replace("Chrome/121", "Chrome/120") },
     ]) {
       expect(isIframeInconsistent(iframeContext(overrides).context)).toBe(true);
     }
+
+    // Two corroborating differences together still count.
+    expect(
+      isIframeInconsistent(
+        iframeContext({ userAgent: "different", languages: ["sv-SE"] }).context,
+      ),
+    ).toBe(true);
   });
 
   it("detects proxied iframe realms and ignores iframe Chrome state", () => {
@@ -1371,10 +1373,11 @@ describe("async realm and browser checks", () => {
   });
 
   it.each([
-    { userAgent: "different", platform: "Linux" },
-    { language: "sv-SE", languages: ["sv-SE"], platform: "Linux" },
+    { platform: "Linux x86_64" },
+    { userAgent: CHROME_UA.replace("Windows NT 10.0; Win64; x64", "X11; Linux x86_64") },
+    { userAgent: CHROME_UA.replace("Chrome/121", "Chrome/118") },
     { userAgent: "different", languages: ["sv-SE"] },
-  ])("detects worker Navigator mismatch %#", async (override) => {
+  ])("detects worker persona mismatch %#", async (override) => {
     const { context, WorkerMock } = createWorkerContext();
     const resultPromise = checkWorkerConsistency(context);
     WorkerMock.instances.at(-1)!.onmessage?.({
@@ -1387,12 +1390,12 @@ describe("async realm and browser checks", () => {
   });
 
   it.each([
-    { userAgent: "different" },
-    { language: "sv-SE", languages: ["sv-SE"] },
-    { platform: "Linux" },
     // Opera reports a reduced core count to the document but not to workers.
     { hardwareConcurrency: 99 },
-    { hardwareConcurrency: 99, platform: "Linux" },
+    { language: "en-GB", languages: ["en-GB", "en"] },
+    { userAgent: `${CHROME_UA} OPR/133.0.0.0` },
+    { platform: "Win32 " },
+    { hardwareConcurrency: 99, languages: ["en-GB"] },
   ])("tolerates worker differences a stock browser produces %#", async (override) => {
     const { context, WorkerMock } = createWorkerContext();
     const resultPromise = checkWorkerConsistency(context);
@@ -2047,5 +2050,63 @@ describe("Opera fingerprint-protection regression", () => {
 
   it("does not flag the screen geometry it reports", () => {
     expect(isScreenGeometryInconsistent(operaContext())).toBe(false);
+  });
+});
+
+describe("cross-realm persona comparison", () => {
+  const ANDROID_UA = "Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/121.0.0.0 Mobile";
+  const IOS_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) Version/17.4 Safari/605.1.15";
+  const CROS_UA = "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) Chrome/121.0.0.0";
+
+  it("treats a different OS family as decisive", () => {
+    expect(
+      hasRealmPersonaMismatch({ userAgent: ANDROID_UA }, { userAgent: IOS_UA }),
+    ).toBe(true);
+    expect(
+      hasRealmPersonaMismatch({ userAgent: CROS_UA }, { userAgent: ANDROID_UA }),
+    ).toBe(true);
+    expect(
+      hasRealmPersonaMismatch({ userAgent: IOS_UA }, { userAgent: CROS_UA }),
+    ).toBe(true);
+  });
+
+  it("accepts realms that agree on family and version", () => {
+    expect(
+      hasRealmPersonaMismatch({ userAgent: ANDROID_UA }, { userAgent: ANDROID_UA }),
+    ).toBe(false);
+    expect(hasRealmPersonaMismatch({}, {})).toBe(false);
+    // An unknown value on either side cannot contradict anything.
+    expect(
+      hasRealmPersonaMismatch({ userAgent: ANDROID_UA }, { userAgent: undefined }),
+    ).toBe(false);
+    expect(
+      hasRealmPersonaMismatch({ platform: "Win32" }, { platform: undefined }),
+    ).toBe(false);
+    expect(
+      hasRealmPersonaMismatch({ userAgent: "opaque" }, { userAgent: "other" }),
+    ).toBe(false);
+  });
+
+  it("falls back to navigator.language when languages is absent", () => {
+    // Region differences normalise away; only the primary subtag counts.
+    expect(
+      hasRealmPersonaMismatch(
+        { language: "en-GB", userAgent: "opaque" },
+        { language: "en-US", userAgent: "other" },
+      ),
+    ).toBe(false);
+    expect(
+      hasRealmPersonaMismatch(
+        { language: "en-GB", userAgent: "opaque" },
+        { language: "sv-SE", userAgent: "other" },
+      ),
+    ).toBe(true);
+    // An empty languages list falls through to the singular value.
+    expect(
+      hasRealmPersonaMismatch(
+        { languages: [], language: "en", userAgent: "opaque" },
+        { languages: [], language: "sv", userAgent: "other" },
+      ),
+    ).toBe(true);
   });
 });

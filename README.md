@@ -266,7 +266,7 @@ applications can reuse those global names.
 | `isNativeFunctionTampered` | 0.8 | Native functions or Navigator getters were patched |
 | `isNavigatorIdentityInconsistent` | 0.65 | UA conflicts with Navigator vendor/platform/product/touch claims |
 | `isPluginArrayInconsistent` | 0.65 | Plugin/MIME arrays or entries have non-native prototypes |
-| `isIframeInconsistent` | 0.8 | Shared realm objects, injected `self.get`, `webdriver` drift, or **two or more** Navigator values differing in a fresh iframe (core count excluded) |
+| `isIframeInconsistent` | 0.8 | Shared realm objects, injected `self.get`, `webdriver` drift, or a fresh iframe describing a different OS/browser than the page |
 | `isErrorStackAutomation` | 0.85 | Error stack contains an automation source marker |
 | `isEngineInconsistent` | 0.8 | `eval.toString().length` (33 in V8, 37 in SpiderMonkey/JSC) or SpiderMonkey-only globals contradict the browser the UA claims |
 | `isGpuPlatformMismatch` | 0.6 | WebGL renderer names Direct3D off Windows, Metal off Apple, or Adreno/Mali off Android |
@@ -288,19 +288,20 @@ applications can reuse those global names.
 | `isCdpDetected` | 0.25 | Async — CDP serialized an `Error` object (deduplicated with worker CDP) |
 | `isNotificationPermissionInconsistent` | 0.55 | Async — Notification and Permissions states contradict |
 | `isHighEntropyUserAgentDataMismatch` | 0.65 | Async — high-entropy UA-CH conflicts with the UA |
-| `isWorkerInconsistent` | 0.8 | Async — **two or more** worker Navigator values differ from the main realm (core count excluded) |
+| `isWorkerInconsistent` | 0.8 | Async — the worker realm describes a different OS family or browser major version than the page |
 | `isCdpDetectedInWorker` | 0.25 | Async — CDP serialized an `Error` in a worker (deduplicated with page CDP) |
 | `isMissingMediaDevices` | 0.3 | Async — desktop Chromium enumerated no audio or video devices |
 
 **Browser fingerprint protection is not automation.** The two cross-realm
-checks (`isIframeInconsistent`, `isWorkerInconsistent`) require **two or more**
-Navigator values to differ before they fire, because extensions — including the
-ones Chromium forks ship built in — rewrite a single value in the top document
-without reaching workers or `about:blank` frames, while spoofing frameworks
-install a whole persona. `navigator.hardwareConcurrency` is excluded from that
-comparison outright: Opera 133 reports 2 cores to the page while its workers and
-frames report the machine's real 10. Realm-identity tampering and
-`navigator.webdriver` drift still fire on their own, and a missing
+checks (`isIframeInconsistent`, `isWorkerInconsistent`) compare what the realms
+*mean*, not their strings. Protection rewrites values per realm by design —
+Opera 133 reports 2 cores and a normalised locale to the page while its workers
+and `about:blank` frames report the machine's real 10 — so byte equality flags
+stock browsers. A realm mismatch is only counted when the realms describe a
+different **OS family**, a different **browser major version**, or when two
+softer values (primary language subtag, platform/UA string) disagree together.
+`navigator.hardwareConcurrency` is not compared at all. Realm-identity tampering
+and `navigator.webdriver` drift still fire on their own, and a missing
 `window.chrome` inside a fresh frame is ignored entirely because Chromium forks
 and Electron do that legitimately.
 
