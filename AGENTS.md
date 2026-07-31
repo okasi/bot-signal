@@ -15,6 +15,8 @@ TypeScript npm library with three detection layers:
 `src/automation.ts` contains the shared best-effort attribution result types.
 Instant and server results expose `automation` (`kind`, confidence, evidence,
 and alternatives); stealth framework names are probabilistic, not definitive.
+`src/userAgent.ts` contains shared scripting-client and conservative
+bot/HTTP-client/automation User-Agent token parsing.
 
 Entry points: `src/index.ts` (full API), `src/browser.ts` (browser-only),
 `src/server.ts` (server-only). The package.json `exports` map routes the root
@@ -30,10 +32,10 @@ src/
   browser.ts                  # browser entry (instant + behavioral)
   server.ts                   # server entry (server detection only)
   automation.ts               # shared automation attribution types/helper
-  userAgent.ts                # shared scripting User-Agent token parser
+  userAgent.ts                # shared scripting/bot/HTTP-client/automation UA parser
   detectInstantClient.ts      # instant detection entry
   checks.ts                   # high-value browser checks
-  asyncChecks.ts              # CDP, permissions, high-entropy UA-CH, worker checks
+  asyncChecks.ts              # CDP, permissions, high-entropy UA-CH, media devices, worker checks
   webgpu.ts                   # shader-f16 + isChromiumBrowser
   behavioral/
     analysis.ts               # mouse/scroll/typing/touch heuristics

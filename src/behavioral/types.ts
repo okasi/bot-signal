@@ -23,6 +23,10 @@ export interface BehavioralSampleCounts {
 export interface MouseSample {
   x: number;
   y: number;
+  /** Browser-reported delta from the previous mouse event, when collected. */
+  movementX?: number;
+  /** Browser-reported delta from the previous mouse event, when collected. */
+  movementY?: number;
   t: number;
   isTrusted: boolean;
 }

@@ -122,10 +122,11 @@ describe("patchright vs stealth expectations", () => {
   it("records patchright baseline instant result for regression tracking", async () => {
     const { context, page } = await openHarnessPage(browser, server.baseUrl);
     const result = await runInstantDetection(page);
+    const userAgent = await page.evaluate(() => navigator.userAgent);
 
     expect(result.isWebDriver).toBe(false);
     expect(result.isAutomationArtifacts).toBe(false);
-    expect(result.isUserAgentValid).toBe(true);
+    expect(result.isUserAgentValid).toBe(!userAgent.includes("HeadlessChrome/"));
     // WebGL availability is environment-dependent in headless Chromium 139+
     const probe = await page.evaluate(() =>
       Boolean(document.createElement("canvas").getContext("webgl")),

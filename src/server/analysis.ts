@@ -17,6 +17,7 @@ import type {
   ServerDetectorOptions,
   ServerSignal,
 } from "./types.js";
+import { isBotUserAgent } from "../userAgent.js";
 
 function createSignal(
   id: string,
@@ -85,17 +86,39 @@ export function isClientUserAgentMismatch(
 }
 
 function firstAcceptedLanguage(acceptLanguage: string): string | undefined {
+  let preferred: string | undefined;
+  let preferredQuality = -1;
+  let wildcardQuality = -1;
+
   for (const part of acceptLanguage.split(",")) {
     const [language, ...parameters] = part.trim().split(";");
-    const quality = parameters
-      .map((parameter) => parameter.trim().match(/^q=([01](?:\.\d+)?)$/i)?.[1])
-      .find((value) => value !== undefined);
-    if (language && (quality === undefined || Number(quality) > 0)) {
-      return language.toLowerCase();
+    const normalizedLanguage = language?.trim().toLowerCase();
+    if (!normalizedLanguage) {
+      continue;
+    }
+
+    const qualityParameter = parameters.find((parameter) =>
+      /^q=/i.test(parameter.trim()),
+    );
+    const qualityMatch = qualityParameter
+      ?.trim()
+      .match(/^q=(0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$/i);
+    if (qualityParameter && !qualityMatch) {
+      continue;
+    }
+
+    const quality = qualityMatch ? Number(qualityMatch[1]) : 1;
+    if (normalizedLanguage === "*") {
+      wildcardQuality = Math.max(wildcardQuality, quality);
+      continue;
+    }
+    if (quality > 0 && quality > preferredQuality) {
+      preferred = normalizedLanguage;
+      preferredQuality = quality;
     }
   }
 
-  return undefined;
+  return wildcardQuality >= preferredQuality ? undefined : preferred;
 }
 
 /** Accept-Language's preferred value disagrees with Navigator language data. */
@@ -143,11 +166,13 @@ function normalizePlatform(platform: string): string | undefined {
 function platformMatches(
   actual: string | undefined,
   expected: string,
+  allowLegacyAliases: boolean,
 ): boolean {
   return actual === undefined ||
     actual === expected ||
-    (expected === "android" && actual === "linux") ||
-    (expected === "ios" && actual === "macos");
+    (allowLegacyAliases && expected === "android" && actual === "linux") ||
+    (allowLegacyAliases && expected === "chrome os" && actual === "linux") ||
+    (allowLegacyAliases && expected === "ios" && actual === "macos");
 }
 
 /** UA operating-system claim conflicts with JS platform or Client Hints. */
@@ -169,7 +194,8 @@ export function isClientPlatformMismatch(
   const hint = secChUaPlatform
     ? normalizePlatform(secChUaPlatform)
     : undefined;
-  return !platformMatches(client, expected) || !platformMatches(hint, expected);
+  return !platformMatches(client, expected, true) ||
+    !platformMatches(hint, expected, false);
 }
 
 /** sec-ch-ua-mobile conflicts with the User-Agent's mobile claim. */
@@ -182,7 +208,7 @@ export function isClientHintsMobileMismatch(
   }
 
   return (secChUaMobile.trim() === "?1") !==
-    /(?:Mobi|Android|iPhone|iPad)/i.test(userAgent);
+    /(?:Mobi|iPhone|iPod)/i.test(userAgent);
 }
 
 /**
@@ -210,6 +236,8 @@ export function buildServerSignals(
 ): ServerSignal[] {
   const timezoneToleranceMinutes = options.timezoneToleranceMinutes ?? 60;
   const suspiciousTlsFingerprints = options.suspiciousTlsFingerprints ?? [];
+  const suspiciousTlsFingerprintEntries =
+    options.suspiciousTlsFingerprintEntries ?? [];
   const requireTlsFingerprint = options.requireTlsFingerprint ?? false;
   const requireBrowserHeaders = options.requireBrowserHeaders ?? false;
   const suspiciousTlsEntry = context.tlsFingerprint
@@ -217,6 +245,7 @@ export function buildServerSignals(
         context.tlsFingerprint,
         suspiciousTlsFingerprints,
         context.tlsFingerprintType,
+        suspiciousTlsFingerprintEntries,
       )
     : undefined;
 
@@ -227,6 +256,13 @@ export function buildServerSignals(
       isScriptingUserAgent(context.userAgent),
       0.75,
       "medium",
+    ),
+    createSignal(
+      "bot-user-agent",
+      "User-Agent claims a known bot, HTTP, or automation client",
+      isBotUserAgent(context.userAgent),
+      0.9,
+      "high",
     ),
     createSignal(
       "client-hints-mismatch",
@@ -301,6 +337,7 @@ export function buildServerSignals(
         context.tlsFingerprint,
         suspiciousTlsFingerprints,
         context.tlsFingerprintType,
+        suspiciousTlsFingerprintEntries,
       ),
       0.55,
       suspiciousTlsEntry?.confidence ?? "high",
@@ -313,9 +350,10 @@ export function buildServerSignals(
         context.userAgent,
         suspiciousTlsFingerprints,
         context.tlsFingerprintType,
+        suspiciousTlsFingerprintEntries,
       ),
       0.5,
-      "high",
+      suspiciousTlsEntry?.confidence ?? "high",
     ),
     createSignal(
       "missing-tls-fingerprint",

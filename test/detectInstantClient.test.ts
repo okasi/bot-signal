@@ -1041,11 +1041,13 @@ describe("detectInstantClientAsync", () => {
 
   it("skips shader-f16 on non-Chromium browsers", async () => {
     const context = createMockContext({
+      // Gecko marker so the engine-identity check agrees with the Firefox UA.
+      InternalError: class extends Error {},
       navigator: {
         userAgent:
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
       } as ExtendedWindow["navigator"],
-    });
+    } as Partial<ExtendedWindow>);
 
     const result = await detectInstantClientAsync(context);
 

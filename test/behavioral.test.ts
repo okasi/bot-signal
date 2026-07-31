@@ -11,6 +11,7 @@ import {
   hasNoMouseActivity,
   hasSyntheticEvents,
   hasTeleportMouse,
+  hasZeroMouseMovementDeltas,
 } from "../src/behavioral/index.js";
 import type {
   BehavioralSamples,
@@ -156,6 +157,32 @@ describe("behavioral analysis", () => {
     ];
 
     expect(hasTeleportMouse(moves)).toBe(true);
+  });
+
+  it("detects long mouse traces whose browser deltas are always zero", () => {
+    const zeroDeltas = Array.from({ length: 51 }, (_, index) => ({
+      x: index,
+      y: index % 7,
+      movementX: 0,
+      movementY: 0,
+      t: index * 16,
+      isTrusted: true,
+    }));
+
+    expect(hasZeroMouseMovementDeltas(zeroDeltas)).toBe(true);
+    expect(hasZeroMouseMovementDeltas(zeroDeltas.slice(0, 50))).toBe(false);
+    expect(
+      hasZeroMouseMovementDeltas([
+        ...zeroDeltas.slice(0, 50),
+        { ...zeroDeltas[50], movementX: 1 },
+      ]),
+    ).toBe(false);
+    expect(hasZeroMouseMovementDeltas(createLinearMouseMoves(51))).toBe(false);
+    expect(
+      buildBehavioralSignals(createSamples({ mouseMoves: zeroDeltas })).find(
+        ({ id }) => id === "zero-mouse-movement-deltas",
+      ),
+    ).toMatchObject({ triggered: true, weight: 0.3, confidence: "medium" });
   });
 
   it("detects large cursor jumps even when elapsed time is above 20ms", () => {

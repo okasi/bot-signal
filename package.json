@@ -97,7 +97,7 @@
     "test:watch": "vitest",
     "test:patchright": "npm run build && vitest run --config vitest.patchright.config.ts",
     "test:all": "npm run test && npm run test:patchright",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.types-test.json",
     "update:ip-data": "tsx scripts/update-ip-data.ts",
     "prepublishOnly": "npm run typecheck && npm run test:coverage && npm run build && npm run lint:package"
   },

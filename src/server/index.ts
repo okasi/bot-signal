@@ -52,3 +52,4 @@ export type {
   ConfidenceLevel as ServerConfidenceLevel,
 } from "./types.js";
 export type { TlsFingerprintEntry, UserAgentFamily } from "./tls.js";
+export { isBotUserAgent } from "../userAgent.js";

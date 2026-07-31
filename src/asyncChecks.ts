@@ -1,4 +1,5 @@
 import type { ExtendedWindow } from "./types.js";
+import { isChromiumBrowser } from "./webgpu.js";
 
 export interface WorkerChecks {
   isWorkerInconsistent: boolean | null;
@@ -65,7 +66,10 @@ function platformContradictsUserAgent(platform: string, userAgent: string): bool
 export async function checkCdpRuntime(
   context: ExtendedWindow,
 ): Promise<boolean | null> {
-  if (typeof context.console?.debug !== "function") {
+  if (
+    !isChromiumBrowser(context) ||
+    typeof context.console?.debug !== "function"
+  ) {
     return null;
   }
 
@@ -80,8 +84,34 @@ export async function checkCdpRuntime(
 
   try {
     context.console.debug(error);
-    await Promise.resolve();
+    await new Promise<void>((resolve) => {
+      context.setTimeout(resolve, 0);
+    });
     return accessed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Desktop Chromium that enumerates no media devices at all. Headless Chrome
+ * ships without audio or video endpoints; a real desktop reports at least one.
+ */
+export async function checkMediaDevices(
+  context: ExtendedWindow,
+): Promise<boolean | null> {
+  const mediaDevices = context.navigator.mediaDevices;
+  if (
+    !isChromiumBrowser(context) ||
+    /Mobi|Android/i.test(context.navigator.userAgent) ||
+    typeof mediaDevices?.enumerateDevices !== "function"
+  ) {
+    return null;
+  }
+
+  try {
+    const devices = await mediaDevices.enumerateDevices();
+    return devices.length === 0;
   } catch {
     return null;
   }
@@ -222,6 +252,7 @@ export async function checkWorkerConsistency(
       finish({
         isWorkerInconsistent: compareWorkerSnapshot(context, snapshot),
         isCdpDetectedInWorker:
+          isChromiumBrowser(context) &&
           typeof snapshot.cdpDetected === "boolean"
             ? snapshot.cdpDetected
             : null,

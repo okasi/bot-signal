@@ -4,6 +4,8 @@ import { getScriptingUserAgentKind } from "../userAgent.js";
 export interface TlsFingerprintEntry {
   id: string;
   label: string;
+  /** Defaults to `ja3` for backward compatibility. */
+  fingerprintType?: "ja3" | "ja4";
   hash?: string;
   prefix?: string;
   families: UserAgentFamily[];
@@ -109,18 +111,29 @@ export function findTlsFingerprintEntry(
   fingerprint: string,
   extraFingerprints: string[] = [],
   fingerprintType: "ja3" | "ja4" = "ja3",
+  extraEntries: TlsFingerprintEntry[] = [],
 ): TlsFingerprintEntry | undefined {
   const normalized = normalizeTlsFingerprint(fingerprint);
 
-  if (fingerprintType === "ja3") {
-    for (const entry of KNOWN_SUSPICIOUS_TLS_FINGERPRINTS) {
-      if (entry.hash && normalized === entry.hash) {
-        return entry;
-      }
+  for (const entry of [
+    ...KNOWN_SUSPICIOUS_TLS_FINGERPRINTS,
+    ...extraEntries,
+  ]) {
+    if ((entry.fingerprintType ?? "ja3") !== fingerprintType) {
+      continue;
+    }
+    const normalizedHash = entry.hash
+      ? normalizeTlsFingerprint(entry.hash)
+      : undefined;
+    if (normalizedHash && normalized === normalizedHash) {
+      return entry;
+    }
 
-      if (entry.prefix && normalized.startsWith(entry.prefix)) {
-        return entry;
-      }
+    const normalizedPrefix = entry.prefix
+      ? normalizeTlsFingerprint(entry.prefix)
+      : undefined;
+    if (normalizedPrefix && normalized.startsWith(normalizedPrefix)) {
+      return entry;
     }
   }
 
@@ -151,13 +164,19 @@ export function isKnownSuspiciousTlsFingerprint(
   fingerprint: string | undefined,
   extraFingerprints: string[] = [],
   fingerprintType: "ja3" | "ja4" = "ja3",
+  extraEntries: TlsFingerprintEntry[] = [],
 ): boolean {
   if (!fingerprint) {
     return false;
   }
 
   return (
-    findTlsFingerprintEntry(fingerprint, extraFingerprints, fingerprintType) !==
+    findTlsFingerprintEntry(
+      fingerprint,
+      extraFingerprints,
+      fingerprintType,
+      extraEntries,
+    ) !==
     undefined
   );
 }
@@ -171,6 +190,7 @@ export function isTlsUserAgentMismatch(
   userAgent: string | undefined,
   extraFingerprints: string[] = [],
   fingerprintType: "ja3" | "ja4" = "ja3",
+  extraEntries: TlsFingerprintEntry[] = [],
 ): boolean {
   if (!fingerprint || !userAgent) {
     return false;
@@ -180,11 +200,15 @@ export function isTlsUserAgentMismatch(
     fingerprint,
     extraFingerprints,
     fingerprintType,
+    extraEntries,
   );
   if (!entry) {
     return false;
   }
-  if (entry.id === "custom") {
+  if (
+    entry.id === "custom" &&
+    ![...KNOWN_SUSPICIOUS_TLS_FINGERPRINTS, ...extraEntries].includes(entry)
+  ) {
     return false;
   }
 

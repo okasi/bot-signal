@@ -1,4 +1,5 @@
 import type { AutomationAssessment } from "../automation.js";
+import type { TlsFingerprintEntry } from "./tls.js";
 
 export type ConfidenceLevel = "high" | "medium" | "low";
 
@@ -58,6 +59,8 @@ export interface ServerDetectorOptions {
   scoreThreshold?: number;
   /** Additional JA3/JA4 hashes or raw fingerprint prefixes to treat as suspicious */
   suspiciousTlsFingerprints?: string[];
+  /** Family-labelled JA3/JA4 entries used for TLS/UA consistency checks. */
+  suspiciousTlsFingerprintEntries?: TlsFingerprintEntry[];
   /** When true, flags browser-like user agents that omit a TLS fingerprint */
   requireTlsFingerprint?: boolean;
   /** When true, flags browser UAs missing the standard Sec-Fetch metadata headers. */

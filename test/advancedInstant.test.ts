@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  aggregateInstantSuspicionScore,
   checkCdpRuntime,
   checkHighEntropyUserAgentData,
   checkNotificationPermissionConsistency,
@@ -10,12 +11,25 @@ import {
   isAutomationArtifacts,
   isCanvasTampered,
   isDefaultAutomationViewport,
+  isEngineInconsistent,
   isErrorStackAutomation,
+  isGpuPlatformMismatch,
   isIframeInconsistent,
+  isLanguageInconsistent,
+  isMediaQueryInconsistent,
+  isMissingProprietaryCodecs,
   isNativeFunctionTampered,
   isNavigatorIdentityInconsistent,
   isPluginArrayInconsistent,
+  isPlaywright,
+  isPuppeteer,
+  checkMediaDevices,
+  isBotUserAgent,
+  isScreenGeometryInconsistent,
+  isSoftwareRenderer,
   isSuspiciousHardware,
+  isSuspiciousWebDriverDescriptor,
+  isSuspiciousWindowDimensions,
   isZeroConnectionRtt,
 } from "../src/detectInstantClient.js";
 import type { ExtendedNavigator, ExtendedWindow } from "../src/types.js";
@@ -164,6 +178,190 @@ describe("expanded automation artifacts", () => {
         }),
       ),
     ).toBe(false);
+    expect(
+      detectInstantClient(
+        createContext({
+          external: {
+            toString() {
+              throw new Error("blocked");
+            },
+          },
+        }),
+      ).isAutomationArtifacts,
+    ).toBe(false);
+  });
+
+  it("survives throwing page-owned automation marker getters", () => {
+    const context = createContext();
+    for (const property of [
+      "process",
+      "__playwright",
+      "__puppeteer_evaluation_script__",
+      "_WEBDRIVER_ELEM_CACHE",
+      "callSelenium",
+      "Function",
+    ]) {
+      Object.defineProperty(context, property, {
+        configurable: true,
+        get() {
+          throw new Error("blocked marker getter");
+        },
+      });
+    }
+    Object.defineProperty(context.document, "__selenium_evaluate", {
+      configurable: true,
+      get() {
+        throw new Error("blocked document marker getter");
+      },
+    });
+    Object.defineProperty(context.navigator, "webdriver", {
+      configurable: true,
+      get() {
+        throw new Error("blocked navigator marker getter");
+      },
+    });
+
+    expect(() => detectInstantClient(context)).not.toThrow();
+    expect(detectInstantClient(context)).toMatchObject({
+      isWebDriver: false,
+      isPlaywright: true,
+      isPuppeteer: true,
+      isChromeDriver: true,
+      isSelenium: false,
+    });
+
+    const nestedProcessGetter = createContext({
+      process: new Proxy(
+        {},
+        {
+          get() {
+            throw new Error("blocked process field getter");
+          },
+        },
+      ),
+    });
+    expect(() => detectInstantClient(nestedProcessGetter)).not.toThrow();
+
+    const throwingDocumentAttribute = createContext({
+      document: {
+        documentElement: {
+          hasAttribute() {
+            throw new Error("blocked document attribute check");
+          },
+        },
+      } as unknown as Document,
+    });
+    expect(() => detectInstantClient(throwingDocumentAttribute)).not.toThrow();
+  });
+
+  it("keeps generic runtime names soft and ignores falsey collisions", () => {
+    const marker = detectInstantClient(createContext({ RunPerfTest: true }));
+    expect(marker.isAutomationArtifacts).toBe(true);
+    expect(marker.isLegitClient).toBe(true);
+    expect(marker.automation).toMatchObject({
+      isAutomated: false,
+      kind: "unknown",
+    });
+    expect(marker.signals.find(({ id }) => id === "isAutomationArtifacts"))
+      .toMatchObject({ weight: 0.35, confidence: "low", triggered: true });
+    expect(
+      isAutomationArtifacts(createContext({ RunPerfTest: undefined })),
+    ).toBe(false);
+  });
+
+  it("detects exposed automation bindings and document attributes", () => {
+    const playwrightBinding = Function(
+      "/* exposeBindingHandle supports a single argument */",
+    );
+    const puppeteerBinding = Function("/* This is the Puppeteer binding */");
+    const installed = () => undefined;
+    (installed as typeof installed & { __installed: boolean }).__installed = true;
+
+    expect(isPlaywright(createContext({ playwrightBinding } as Partial<ExtendedWindow>)))
+      .toBe(true);
+    expect(isPuppeteer(createContext({ puppeteerBinding } as Partial<ExtendedWindow>)))
+      .toBe(true);
+    expect(isPuppeteer(createContext({ puppeteer_bridge() {} } as Partial<ExtendedWindow>)))
+      .toBe(true);
+    expect(isAutomationArtifacts(createContext({ exposed: installed } as Partial<ExtendedWindow>)))
+      .toBe(true);
+
+    const attributed = createContext({
+      document: {
+        documentElement: {
+          hasAttribute: (name: string) => name === "webdriver",
+        },
+      } as unknown as Document,
+    });
+    expect(isAutomationArtifacts(attributed)).toBe(true);
+
+    const throwingFunction = {
+      prototype: {
+        bind: Function.prototype.bind,
+        toString() {
+          throw new Error("blocked");
+        },
+      },
+    } as unknown as FunctionConstructor;
+    const tampered = detectInstantClient(
+      createContext({
+        Function: throwingFunction,
+        pageFunction() {},
+      } as Partial<ExtendedWindow>),
+    );
+    expect(tampered.isNativeFunctionTampered).toBe(true);
+
+    const throwingPrototype = {
+      bind: Function.prototype.bind,
+    } as { bind: typeof Function.prototype.bind; toString?: unknown };
+    Object.defineProperty(throwingPrototype, "toString", {
+      get() {
+        throw new Error("blocked getter");
+      },
+    });
+    const throwingGetterFunction = {
+      prototype: throwingPrototype,
+    } as unknown as FunctionConstructor;
+    const getterTampered = detectInstantClient(
+      createContext({ Function: throwingGetterFunction }),
+    );
+    expect(getterTampered.isNativeFunctionTampered).toBe(true);
+
+    const revoked = Proxy.revocable(() => undefined, {});
+    revoked.revoke();
+    expect(
+      isAutomationArtifacts(
+        createContext({ revoked: revoked.proxy } as Partial<ExtendedWindow>),
+      ),
+    ).toBe(false);
+  });
+
+  it("detects callSelenium without treating a Phantom wallet as automation", async () => {
+    expect(detectInstantClient(createContext({ callSelenium: true })).isSelenium)
+      .toBe(true);
+    const walletContext = createContext({
+      phantom: { solana: {} },
+      navigator: {
+        gpu: {
+          requestAdapter: vi.fn().mockResolvedValue({ features: new Set() }),
+        },
+      } as ExtendedNavigator,
+    } as Partial<ExtendedWindow>);
+    const wallet = detectInstantClient(walletContext);
+    expect(wallet).toMatchObject({
+      isPhantomJS: false,
+      isAutomationArtifacts: false,
+      isLegitClient: true,
+      automation: { isAutomated: false, kind: "unknown" },
+    });
+    const asyncWallet = await detectInstantClientAsync(walletContext);
+    expect(asyncWallet).toMatchObject({
+      isAutomationArtifacts: false,
+      isShaderF16Supported: false,
+      isLegitClient: true,
+      automation: { isAutomated: false, kind: "unknown" },
+    });
+    expect(asyncWallet.suspicionScore).toBeCloseTo(0.3);
   });
 
   it.each([
@@ -177,8 +375,58 @@ describe("expanded automation artifacts", () => {
     { document: { __fxdriver_evaluate: true } },
     { document: { __driver_unwrapped: true } },
     { document: { __webdriver_unwrapped: true } },
+    { document: { "driver-evaluate": true } },
+    { document: { "webdriver-evaluate": true } },
+    { document: { webdriverCommand: true } },
+    { document: { "webdriver-evaluate-response": true } },
+    { document: { webdriver: true } },
+    { document: { _Selenium_IDE_Recorder: true } },
+    { document: { _selenium: true } },
+    { document: { calledSelenium: true } },
+    { document: { __webdriverFunc: true } },
+    { document: { __lastWatirAlert: true } },
+    { document: { __lastWatirConfirm: true } },
+    { document: { __lastWatirPrompt: true } },
+    { document: { ChromeDriverw: true } },
   ] as Array<Partial<ExtendedWindow>>)("scores Selenium marker %#", (marker) => {
     expect(detectInstantClient(createContext(marker)).isSelenium).toBe(true);
+  });
+
+  it("detects a truthy accessor-backed Selenium document marker", () => {
+    const context = createContext();
+    Object.defineProperty(context.document, "__selenium_evaluate", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return true;
+      },
+    });
+
+    expect(detectInstantClient(context).isSelenium).toBe(true);
+  });
+
+  it("detects Sannysoft's nested document cache marker conservatively", () => {
+    expect(
+      detectInstantClient(
+        createContext({ document: { "$cdc_marker": { cache_: true } } }),
+      ).isChromeDriver,
+    ).toBe(true);
+    expect(
+      detectInstantClient(
+        createContext({ document: { "$cdc_marker": { cache_: false } } }),
+      ).isChromeDriver,
+    ).toBe(false);
+    expect(
+      detectInstantClient(
+        createContext({ document: { "$abc_other": { cache_: true } } }),
+      ).isChromeDriver,
+    ).toBe(false);
+    const functionCache = Object.assign(() => undefined, { cache_: true });
+    expect(
+      detectInstantClient(
+        createContext({ document: { "$wdc_function": functionCache } }),
+      ).isChromeDriver,
+    ).toBe(true);
   });
 });
 
@@ -208,10 +456,22 @@ describe("native and identity consistency", () => {
     const malformedFunction = {
       prototype: { bind() {}, toString: "not-a-function" },
     } as unknown as FunctionConstructor;
+    const malformedBind = {
+      prototype: {
+        bind: "not-a-function",
+        toString: Function.prototype.toString,
+      },
+    } as unknown as FunctionConstructor;
 
     expect(isNativeFunctionTampered(createContext({ Function: fakeFunction }))).toBe(true);
     expect(isNativeFunctionTampered(createContext({ Function: throwingFunction }))).toBe(true);
     expect(isNativeFunctionTampered(createContext({ Function: malformedFunction }))).toBe(true);
+    expect(
+      detectInstantClient(createContext({ Function: malformedFunction }))
+        .isNativeFunctionTampered,
+    ).toBe(true);
+    expect(isNativeFunctionTampered(createContext({ Function: malformedBind })))
+      .toBe(true);
   });
 
   it("detects patched Navigator getters but accepts native getters", () => {
@@ -258,6 +518,72 @@ describe("native and identity consistency", () => {
     delete (absent.navigator as Partial<ExtendedNavigator>).languages;
     delete (absent.navigator as Partial<ExtendedNavigator>).plugins;
     expect(isNativeFunctionTampered(absent)).toBe(false);
+  });
+
+  it("detects a prototype webdriver getter patched to return false", () => {
+    const context = createContext();
+    const patchedPrototype = Object.create(Object.getPrototypeOf(context.navigator));
+    Object.defineProperty(patchedPrototype, "webdriver", {
+      configurable: true,
+      get() {
+        return false;
+      },
+    });
+    context.navigator = Object.assign(
+      Object.create(patchedPrototype),
+      context.navigator,
+    ) as ExtendedNavigator;
+
+    expect(context.navigator.webdriver).toBe(false);
+    expect(isNativeFunctionTampered(context)).toBe(true);
+  });
+
+  it("detects an invalid webdriver descriptor shape on a real Navigator", () => {
+    const withDescriptor = (descriptor: PropertyDescriptor) => {
+      const context = createContext();
+      const prototype = Object.create(Object.getPrototypeOf(context.navigator));
+      Object.defineProperty(prototype, "webdriver", descriptor);
+      context.navigator = Object.assign(
+        Object.create(prototype),
+        context.navigator,
+      ) as ExtendedNavigator;
+      Object.defineProperty(context.navigator, Symbol.toStringTag, {
+        value: "Navigator",
+      });
+      return context;
+    };
+    const getter = () => false;
+
+    expect(
+      isSuspiciousWebDriverDescriptor(
+        withDescriptor({ value: false, enumerable: true, configurable: true }),
+      ),
+    ).toBe(true);
+    expect(
+      isSuspiciousWebDriverDescriptor(
+        withDescriptor({
+          get: getter,
+          set: () => undefined,
+          enumerable: true,
+          configurable: true,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isSuspiciousWebDriverDescriptor(
+        withDescriptor({ get: getter, enumerable: false, configurable: true }),
+      ),
+    ).toBe(true);
+    expect(
+      isSuspiciousWebDriverDescriptor(
+        withDescriptor({ get: getter, enumerable: true, configurable: false }),
+      ),
+    ).toBe(true);
+    expect(
+      isSuspiciousWebDriverDescriptor(
+        withDescriptor({ get: getter, enumerable: true, configurable: true }),
+      ),
+    ).toBe(false);
   });
 
   it.each([
@@ -337,7 +663,11 @@ describe("plugin, iframe, stack, and soft consistency checks", () => {
   it("validates PluginArray and MimeTypeArray containers and entries", () => {
     class PluginArrayMock extends Array<Plugin> {}
     class MimeTypeArrayMock extends Array<MimeType> {}
-    class PluginMock {}
+    class PluginMock {
+      toString() {
+        return "[object Plugin]";
+      }
+    }
     class MimeTypeMock {}
 
     const missing = createContext({
@@ -378,6 +708,32 @@ describe("plugin, iframe, stack, and soft consistency checks", () => {
       } as unknown as ExtendedNavigator,
     });
     expect(isPluginArrayInconsistent(valid)).toBe(false);
+
+    const badPluginString = new PluginMock();
+    badPluginString.toString = () => "[object Object]";
+    expect(
+      isPluginArrayInconsistent(
+        createContext({
+          navigator: {
+            plugins: { 0: badPluginString, length: 1 },
+          } as unknown as ExtendedNavigator,
+        }),
+      ),
+    ).toBe(true);
+
+    const throwingPluginString = new PluginMock();
+    throwingPluginString.toString = () => {
+      throw new Error("blocked plugin toString");
+    };
+    expect(
+      isPluginArrayInconsistent(
+        createContext({
+          navigator: {
+            plugins: { 0: throwingPluginString, length: 1 },
+          } as unknown as ExtendedNavigator,
+        }),
+      ),
+    ).toBe(true);
   });
 
   function iframeContext(
@@ -389,7 +745,7 @@ describe("plugin, iframe, stack, and soft consistency checks", () => {
     const child = { ...context.navigator, ...childOverrides } as Navigator;
     const iframe = {
       style: {},
-      contentWindow: { navigator: child },
+      contentWindow: { navigator: child, chrome: {} },
       remove,
     };
     context.document = {
@@ -413,6 +769,45 @@ describe("plugin, iframe, stack, and soft consistency checks", () => {
     ]) {
       expect(isIframeInconsistent(iframeContext(overrides).context)).toBe(true);
     }
+  });
+
+  it("detects proxied iframe realms and missing iframe Chrome state", () => {
+    const sharedNavigator = iframeContext();
+    sharedNavigator.iframe.contentWindow.navigator = sharedNavigator.context.navigator;
+    expect(isIframeInconsistent(sharedNavigator.context)).toBe(true);
+
+    const sharedTimer = iframeContext();
+    Object.assign(sharedTimer.iframe.contentWindow, {
+      setTimeout: sharedTimer.context.setTimeout,
+    });
+    expect(isIframeInconsistent(sharedTimer.context)).toBe(true);
+
+    const selfGetHook = iframeContext();
+    Object.assign(selfGetHook.iframe.contentWindow, {
+      self: { get() {} },
+    });
+    expect(isIframeInconsistent(selfGetHook.context)).toBe(true);
+
+    const sharedWindow = iframeContext();
+    sharedWindow.iframe.contentWindow = sharedWindow.context as unknown as {
+      navigator: Navigator;
+      chrome: object;
+    };
+    expect(isIframeInconsistent(sharedWindow.context)).toBe(true);
+
+    const missingChrome = iframeContext();
+    delete (missingChrome.iframe.contentWindow as { chrome?: object }).chrome;
+    expect(isIframeInconsistent(missingChrome.context)).toBe(true);
+
+    const firefoxApplicationGlobal = iframeContext();
+    const firefoxUserAgent = "Mozilla/5.0 Firefox/128.0";
+    firefoxApplicationGlobal.context.navigator.userAgent = firefoxUserAgent;
+    firefoxApplicationGlobal.iframe.contentWindow.navigator.userAgent =
+      firefoxUserAgent;
+    delete (
+      firefoxApplicationGlobal.iframe.contentWindow as { chrome?: object }
+    ).chrome;
+    expect(isIframeInconsistent(firefoxApplicationGlobal.context)).toBe(false);
   });
 
   it("treats unavailable or blocked iframes as not applicable", () => {
@@ -442,6 +837,10 @@ describe("plugin, iframe, stack, and soft consistency checks", () => {
     class StacklessError extends Error {
       override stack = undefined;
     }
+    class DocumentationError extends Error {
+      override stack =
+        "at PuppeteerGuide (https://example.test/docs/PhantomJS-migration.js:1:1)";
+    }
 
     expect(isErrorStackAutomation(createContext())).toBe(false);
     expect(isErrorStackAutomation(createContext({ Error: undefined }))).toBe(false);
@@ -456,6 +855,29 @@ describe("plugin, iframe, stack, and soft consistency checks", () => {
     expect(
       isErrorStackAutomation(createContext({ Error: StacklessError as ErrorConstructor })),
     ).toBe(false);
+    expect(
+      isErrorStackAutomation(
+        createContext({ Error: DocumentationError as ErrorConstructor }),
+      ),
+    ).toBe(false);
+  });
+
+  it("detects zero outer window dimensions", () => {
+    expect(
+      isSuspiciousWindowDimensions(
+        createContext({ outerWidth: 0, outerHeight: 0 }),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags an empty languages list even when language is also empty", () => {
+    expect(
+      isLanguageInconsistent(
+        createContext({
+          navigator: { language: "", languages: [] } as unknown as ExtendedNavigator,
+        }),
+      ),
+    ).toBe(true);
   });
 
   it("recognizes common default viewports", () => {
@@ -473,9 +895,16 @@ describe("plugin, iframe, stack, and soft consistency checks", () => {
   });
 
   it("detects implausible hardware combinations", () => {
-    expect(isSuspiciousHardware(createContext({ navigator: { deviceMemory: 32 } as ExtendedNavigator }))).toBe(true);
-    expect(isSuspiciousHardware(createContext({ navigator: { hardwareConcurrency: 65 } as ExtendedNavigator }))).toBe(true);
-    expect(isSuspiciousHardware(createContext({ navigator: { hardwareConcurrency: 40, deviceMemory: 8 } as ExtendedNavigator }))).toBe(true);
+    // Off the power-of-two grid every engine quantises deviceMemory to.
+    expect(isSuspiciousHardware(createContext({ navigator: { deviceMemory: 6 } as ExtendedNavigator }))).toBe(true);
+    expect(isSuspiciousHardware(createContext({ navigator: { deviceMemory: 128 } as ExtendedNavigator }))).toBe(true);
+    // Workstations really do report 32 GB, so a large quantised value is fine.
+    expect(isSuspiciousHardware(createContext({ navigator: { deviceMemory: 32 } as ExtendedNavigator }))).toBe(false);
+    expect(isSuspiciousHardware(createContext({ navigator: { hardwareConcurrency: 129 } as ExtendedNavigator }))).toBe(true);
+    expect(isSuspiciousHardware(createContext({ navigator: { hardwareConcurrency: 8.5 } as ExtendedNavigator }))).toBe(true);
+    expect(isSuspiciousHardware(createContext({ navigator: { hardwareConcurrency: 0 } as ExtendedNavigator }))).toBe(true);
+    expect(isSuspiciousHardware(createContext({ navigator: { hardwareConcurrency: 40, deviceMemory: 2 } as ExtendedNavigator }))).toBe(true);
+    expect(isSuspiciousHardware(createContext({ navigator: { hardwareConcurrency: 40, deviceMemory: 8 } as ExtendedNavigator }))).toBe(false);
     expect(isSuspiciousHardware(createContext({ navigator: { hardwareConcurrency: 40, deviceMemory: undefined } as ExtendedNavigator }))).toBe(false);
     expect(isSuspiciousHardware(createContext())).toBe(false);
   });
@@ -532,6 +961,20 @@ describe("async realm and browser checks", () => {
   it("keeps the legacy boolean buildInstantSignals argument compatible", () => {
     const result = detectInstantClient(createContext());
     const checks = result as Parameters<typeof buildInstantSignals>[0];
+    const legacyChecks = { ...checks } as Record<string, boolean>;
+    for (const id of [
+      "isNativeFunctionTampered",
+      "isNavigatorIdentityInconsistent",
+      "isPluginArrayInconsistent",
+      "isIframeInconsistent",
+      "isErrorStackAutomation",
+      "isDefaultAutomationViewport",
+      "isSuspiciousHardware",
+      "isZeroConnectionRtt",
+      "isCanvasTampered",
+    ]) {
+      delete legacyChecks[id];
+    }
 
     expect(
       buildInstantSignals(checks, false).find(
@@ -544,6 +987,11 @@ describe("async realm and browser checks", () => {
       ),
     ).toBe(false);
     expect(buildInstantSignals(checks, null)).toHaveLength(result.signals.length);
+    expect(
+      buildInstantSignals(
+        legacyChecks as Parameters<typeof buildInstantSignals>[0],
+      ).filter((signal) => signal.triggered),
+    ).toEqual([]);
   });
 
   it("detects CDP serialization and handles unavailable/throwing consoles", async () => {
@@ -566,6 +1014,31 @@ describe("async realm and browser checks", () => {
       checkCdpRuntime(
         createContext({
           console: {
+            debug(value: Error) {
+              setTimeout(() => void value.stack, 0);
+            },
+          } as unknown as Console,
+        }),
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      checkCdpRuntime(
+        createContext({
+          navigator: {
+            userAgent: "Mozilla/5.0 Firefox/128.0",
+          } as ExtendedNavigator,
+          console: {
+            debug(value: Error) {
+              void value.stack;
+            },
+          } as unknown as Console,
+        }),
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      checkCdpRuntime(
+        createContext({
+          console: {
             debug() {
               throw new Error("blocked");
             },
@@ -573,6 +1046,31 @@ describe("async realm and browser checks", () => {
         }),
       ),
     ).resolves.toBeNull();
+  });
+
+  it("keeps CDP-only evidence below the default blocking threshold", () => {
+    const checks = detectInstantClient(createContext()) as Parameters<
+      typeof buildInstantSignals
+    >[0];
+    const signals = buildInstantSignals(checks, {
+      isShaderF16Supported: false,
+      isCdpDetected: true,
+      isCdpDetectedInWorker: true,
+    });
+
+    expect(aggregateInstantSuspicionScore(signals)).toBeLessThan(0.5);
+    expect(
+      signals.filter(({ id }) =>
+        id === "isCdpDetected" || id === "isCdpDetectedInWorker"
+      ),
+    ).toHaveLength(1);
+
+    expect(
+      buildInstantSignals(checks, {
+        isCdpDetected: false,
+        isCdpDetectedInWorker: true,
+      }).find(({ id }) => id === "isCdpDetectedInWorker"),
+    ).toMatchObject({ triggered: true, weight: 0.25 });
   });
 
   it("compares Notification and Permissions states", async () => {
@@ -745,6 +1243,93 @@ describe("async realm and browser checks", () => {
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:worker");
   });
 
+  it("does not report worker CDP outside Chromium", async () => {
+    const { context, WorkerMock } = createWorkerContext();
+    context.navigator.userAgent = "Mozilla/5.0 Firefox/128.0";
+    const resultPromise = checkWorkerConsistency(context);
+    WorkerMock.instances.at(-1)!.onmessage?.({
+      data: { ...cleanWorkerSnapshot(context), cdpDetected: true },
+    } as MessageEvent);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      isWorkerInconsistent: false,
+      isCdpDetectedInWorker: null,
+    });
+  });
+
+  it("starts independent async checks while WebGPU is still pending", async () => {
+    let releaseAdapter: (() => void) | undefined;
+    const adapter = new Promise<{ features: Set<string> }>((resolve) => {
+      releaseAdapter = () => resolve({ features: new Set(["shader-f16"]) });
+    });
+    const query = vi.fn().mockResolvedValue({ state: "prompt" });
+    const context = createContext({
+      Notification: { permission: "default" } as typeof Notification,
+      navigator: {
+        gpu: { requestAdapter: vi.fn().mockReturnValue(adapter) },
+        permissions: { query } as unknown as Permissions,
+      } as ExtendedNavigator,
+    });
+
+    const resultPromise = detectInstantClientAsync(context);
+    expect(query).toHaveBeenCalledOnce();
+    releaseAdapter?.();
+    await expect(resultPromise).resolves.toMatchObject({
+      isShaderF16Supported: true,
+      isNotificationPermissionInconsistent: false,
+    });
+  });
+
+  it("recognizes conservative bot and automation User-Agent tokens", () => {
+    expect(isBotUserAgent(undefined)).toBe(false);
+    expect(isBotUserAgent("Mozilla/5.0 Chrome/121 Safari/537.36")).toBe(false);
+    expect(isBotUserAgent("Mozilla/5.0 NotGooglebot/1.0")).toBe(false);
+    expect(isBotUserAgent("Mozilla/5.0 MySelenium/4.0")).toBe(false);
+    expect(
+      isBotUserAgent(
+        "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+      ),
+    ).toBe(true);
+    expect(isBotUserAgent("Mozilla/5.0 Puppeteer/24.0")).toBe(true);
+    expect(
+      isBotUserAgent("AdsBot-Google (+http://www.google.com/adsbot.html)"),
+    ).toBe(true);
+    expect(
+      isBotUserAgent(
+        "Mozilla/5.0 (Linux; Android 9) AppleWebKit/537.36 Mobile Safari/537.36 (compatible; AdsBot-Google-Mobile; +http://www.google.com/mobile/adsbot.html)",
+      ),
+    ).toBe(true);
+    expect(isBotUserAgent("Google-InspectionTool/1.0")).toBe(true);
+    expect(isBotUserAgent("GoogleOther")).toBe(true);
+    expect(isBotUserAgent("GoogleOther-Image/1.0")).toBe(true);
+    expect(isBotUserAgent("Wget/1.21.4")).toBe(true);
+    expect(isBotUserAgent("Mozilla/5.0 MyWget/1.21.4")).toBe(false);
+    expect(isBotUserAgent("Mozilla/5.0 GoogleOtherwise/1.0")).toBe(false);
+
+    const result = detectInstantClient(
+      createContext({
+        navigator: {
+          userAgent:
+            "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+        } as ExtendedNavigator,
+      }),
+    );
+    expect(result).toMatchObject({
+      isUserAgentValid: false,
+      isLegitClient: false,
+      automation: { isAutomated: true, kind: "unknown", confidence: "high" },
+    });
+    expect(
+      detectInstantClient(
+        createContext({
+          navigator: {
+            userAgent: "Mozilla/5.0 Puppeteer/24.0",
+          } as ExtendedNavigator,
+        }),
+      ).automation.kind,
+    ).toBe("puppeteer");
+  });
+
   it("normalizes a missing main-realm languages array for worker comparison", async () => {
     const { context, WorkerMock } = createWorkerContext();
     context.navigator.languages = undefined as unknown as string[];
@@ -840,5 +1425,507 @@ describe("async realm and browser checks", () => {
         "isHighEntropyUserAgentDataMismatch",
       ]),
     );
+  });
+});
+
+describe("engine, GPU, and display consistency", () => {
+  const FIREFOX_UA =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
+  const SAFARI_UA =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15";
+  const IPHONE_UA =
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/122.0 Mobile/15E148 Safari/604.1";
+
+  /** V8 prints native sources on one line (33 chars); JSC and SpiderMonkey use three (37). */
+  function evalOfLength(length: number) {
+    const source = "x".repeat(length);
+    return Object.assign(() => undefined, { toString: () => source });
+  }
+
+  it("accepts an engine that matches the claimed browser", () => {
+    expect(
+      isEngineInconsistent(
+        createContext({ eval: evalOfLength(33) } as Partial<ExtendedWindow>),
+      ),
+    ).toBe(false);
+    expect(
+      isEngineInconsistent(
+        createContext({
+          eval: evalOfLength(37),
+          InternalError: class extends Error {},
+          navigator: { userAgent: FIREFOX_UA } as ExtendedNavigator,
+        } as Partial<ExtendedWindow>),
+      ),
+    ).toBe(false);
+    expect(
+      isEngineInconsistent(
+        createContext({
+          eval: evalOfLength(37),
+          navigator: { userAgent: SAFARI_UA } as ExtendedNavigator,
+        } as Partial<ExtendedWindow>),
+      ),
+    ).toBe(false);
+  });
+
+  it("flags a native eval shape from another engine", () => {
+    expect(
+      isEngineInconsistent(
+        createContext({ eval: evalOfLength(37) } as Partial<ExtendedWindow>),
+      ),
+    ).toBe(true);
+    expect(
+      isEngineInconsistent(
+        createContext({
+          eval: evalOfLength(33),
+          InternalError: class extends Error {},
+          navigator: { userAgent: FIREFOX_UA } as ExtendedNavigator,
+        } as Partial<ExtendedWindow>),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags SpiderMonkey globals that contradict the user agent", () => {
+    expect(
+      isEngineInconsistent(
+        createContext({
+          mozInnerScreenX: 0,
+        } as Partial<ExtendedWindow>),
+      ),
+    ).toBe(true);
+    // Firefox UA without any Gecko-only global.
+    expect(
+      isEngineInconsistent(
+        createContext({
+          navigator: { userAgent: FIREFOX_UA } as ExtendedNavigator,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("treats iOS browsers as WebKit whatever brand they claim", () => {
+    expect(
+      isEngineInconsistent(
+        createContext({
+          eval: evalOfLength(37),
+          navigator: { userAgent: IPHONE_UA } as ExtendedNavigator,
+        } as Partial<ExtendedWindow>),
+      ),
+    ).toBe(false);
+  });
+
+  it("ignores unknown user agents, missing eval, and wrapped eval", () => {
+    expect(
+      isEngineInconsistent(
+        createContext({
+          navigator: { userAgent: "curl/8.6.0" } as ExtendedNavigator,
+        }),
+      ),
+    ).toBe(false);
+    expect(isEngineInconsistent(createContext())).toBe(false);
+    expect(
+      isEngineInconsistent(
+        createContext({ eval: evalOfLength(64) } as Partial<ExtendedWindow>),
+      ),
+    ).toBe(false);
+    const hostile = createContext({
+      eval: Object.assign(() => undefined, {
+        toString() {
+          throw new Error("blocked");
+        },
+      }),
+    } as Partial<ExtendedWindow>);
+    expect(isEngineInconsistent(hostile)).toBe(false);
+  });
+
+  function withRenderer(renderer: string, userAgent = CHROME_UA) {
+    const webGl = {
+      getExtension: vi
+        .fn()
+        .mockReturnValue({ UNMASKED_RENDERER_WEBGL: 1, UNMASKED_VENDOR_WEBGL: 2 }),
+      getParameter: vi.fn((parameter: number) =>
+        parameter === 1 ? renderer : "Google Inc.",
+      ),
+    };
+    return createContext({
+      document: {
+        createElement: vi.fn().mockReturnValue({
+          getContext: vi.fn((kind: string) => (kind === "webgl" ? webGl : null)),
+        }),
+      } as unknown as ExtendedWindow["document"],
+      navigator: { userAgent } as ExtendedNavigator,
+    });
+  }
+
+  it("flags a GPU backend the claimed platform cannot run", () => {
+    expect(
+      isGpuPlatformMismatch(
+        withRenderer("ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Pro)"),
+      ),
+    ).toBe(true);
+    expect(
+      isGpuPlatformMismatch(withRenderer("Adreno (TM) 740")),
+    ).toBe(true);
+    expect(
+      isGpuPlatformMismatch(
+        withRenderer(
+          "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0, D3D11)",
+          SAFARI_UA,
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts matching GPU and platform pairs", () => {
+    expect(
+      isGpuPlatformMismatch(
+        withRenderer(
+          "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0, D3D11)",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      isGpuPlatformMismatch(
+        withRenderer("ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Pro)", SAFARI_UA),
+      ),
+    ).toBe(false);
+    expect(isGpuPlatformMismatch(createContext())).toBe(false);
+  });
+
+  it("ignores WebGL contexts that expose no unmasked identity", () => {
+    const noExtension = createContext({
+      document: {
+        createElement: vi.fn().mockReturnValue({
+          getContext: vi.fn().mockReturnValue({
+            getExtension: vi.fn().mockReturnValue(null),
+            getParameter: vi.fn(),
+          }),
+        }),
+      } as unknown as ExtendedWindow["document"],
+    });
+    expect(isGpuPlatformMismatch(noExtension)).toBe(false);
+    expect(isSoftwareRenderer(noExtension)).toBe(false);
+
+    const noContext = createContext({
+      document: {
+        createElement: vi.fn().mockReturnValue({
+          getContext: vi.fn().mockReturnValue(null),
+        }),
+      } as unknown as ExtendedWindow["document"],
+    });
+    expect(isGpuPlatformMismatch(noContext)).toBe(false);
+
+    const nonStringVendor = createContext({
+      document: {
+        createElement: vi.fn().mockReturnValue({
+          getContext: vi.fn().mockReturnValue({
+            getExtension: vi
+              .fn()
+              .mockReturnValue({ UNMASKED_RENDERER_WEBGL: 1, UNMASKED_VENDOR_WEBGL: 2 }),
+            getParameter: vi.fn((parameter: number) =>
+              parameter === 1 ? "Adreno (TM) 740" : undefined,
+            ),
+          }),
+        }),
+      } as unknown as ExtendedWindow["document"],
+    });
+    expect(isGpuPlatformMismatch(nonStringVendor)).toBe(true);
+
+    const nonStringRenderer = createContext({
+      document: {
+        createElement: vi.fn().mockReturnValue({
+          getContext: vi.fn().mockReturnValue({
+            getExtension: vi.fn().mockReturnValue({ UNMASKED_RENDERER_WEBGL: 1 }),
+            getParameter: vi.fn().mockReturnValue(undefined),
+          }),
+        }),
+      } as unknown as ExtendedWindow["document"],
+    });
+    expect(isGpuPlatformMismatch(nonStringRenderer)).toBe(false);
+  });
+
+  function withMediaQueries(
+    answers: Record<string, boolean>,
+    overrides: Partial<ExtendedWindow> = {},
+  ) {
+    return createContext({
+      devicePixelRatio: 2,
+      // Every query agrees with the reported values unless overridden.
+      matchMedia: ((query: string) => ({
+        matches: answers[query] ?? true,
+      })) as ExtendedWindow["matchMedia"],
+      screen: { width: 1920, height: 1080, colorDepth: 24 } as Screen,
+      ...overrides,
+    } as Partial<ExtendedWindow>);
+  }
+
+  it("flags media queries that contradict devicePixelRatio", () => {
+    expect(
+      isMediaQueryInconsistent(
+        withMediaQueries({ "(min-resolution: 1.98dppx)": false }),
+      ),
+    ).toBe(true);
+    expect(
+      isMediaQueryInconsistent(
+        withMediaQueries({ "(max-resolution: 2.02dppx)": false }),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags media queries that contradict the colour depth", () => {
+    expect(
+      isMediaQueryInconsistent(withMediaQueries({ "(min-color: 7)": false })),
+    ).toBe(true);
+    expect(
+      isMediaQueryInconsistent(withMediaQueries({ "(max-color: 9)": false })),
+    ).toBe(true);
+  });
+
+  it("flags a mobile user agent without any coarse pointer", () => {
+    expect(
+      isMediaQueryInconsistent(
+        withMediaQueries(
+          { "(any-pointer: coarse)": false },
+          {
+            navigator: {
+              userAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 8) Mobile",
+            } as ExtendedNavigator,
+          },
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts consistent media queries and skips unsupported engines", () => {
+    expect(isMediaQueryInconsistent(withMediaQueries({}))).toBe(false);
+    expect(isMediaQueryInconsistent(createContext())).toBe(false);
+    expect(
+      isMediaQueryInconsistent(
+        withMediaQueries({ "(min-resolution: 0dppx)": false }),
+      ),
+    ).toBe(false);
+    // A media query that throws must not decide the verdict on its own.
+    expect(
+      isMediaQueryInconsistent(
+        createContext({
+          devicePixelRatio: 2,
+          matchMedia: ((query: string) => {
+            if (query === "(min-resolution: 0dppx)") {
+              return { matches: true };
+            }
+            throw new Error("blocked");
+          }) as ExtendedWindow["matchMedia"],
+          screen: { width: 1920, height: 1080, colorDepth: 0 } as Screen,
+        } as Partial<ExtendedWindow>),
+      ),
+    ).toBe(false);
+  });
+
+  it("flags impossible screen geometry", () => {
+    const withScreen = (screen: Partial<Screen>, extra: Partial<ExtendedWindow> = {}) =>
+      isScreenGeometryInconsistent(
+        createContext({
+          screen: { width: 1920, height: 1080, ...screen } as Screen,
+          ...extra,
+        } as Partial<ExtendedWindow>),
+      );
+
+    expect(withScreen({ width: 0 })).toBe(true);
+    expect(withScreen({ height: Number.POSITIVE_INFINITY })).toBe(true);
+    expect(withScreen({ availWidth: 2000 })).toBe(true);
+    expect(withScreen({ availHeight: 1200 })).toBe(true);
+    expect(withScreen({ colorDepth: 21 })).toBe(true);
+    expect(withScreen({ colorDepth: 24, pixelDepth: 30 })).toBe(true);
+    expect(withScreen({}, { devicePixelRatio: 0 })).toBe(true);
+    expect(withScreen({}, { devicePixelRatio: 9 })).toBe(true);
+  });
+
+  it("accepts real screen geometry", () => {
+    expect(
+      isScreenGeometryInconsistent(
+        createContext({
+          devicePixelRatio: 2,
+          screen: {
+            width: 1800,
+            height: 1169,
+            availWidth: 1800,
+            availHeight: 1125,
+            colorDepth: 30,
+            pixelDepth: 30,
+          } as Screen,
+        } as Partial<ExtendedWindow>),
+      ),
+    ).toBe(false);
+    expect(isScreenGeometryInconsistent(createContext())).toBe(false);
+    const withoutDimensions = createContext();
+    withoutDimensions.screen = {} as Screen;
+    expect(isScreenGeometryInconsistent(withoutDimensions)).toBe(false);
+  });
+
+  function withCodecSupport(support: string | null, userAgent = CHROME_UA) {
+    return createContext({
+      document: {
+        createElement: vi
+          .fn()
+          .mockReturnValue(
+            support === null ? {} : { canPlayType: () => support },
+          ),
+      } as unknown as ExtendedWindow["document"],
+      navigator: { userAgent } as ExtendedNavigator,
+    });
+  }
+
+  it("flags a Chromium build without H.264", () => {
+    expect(isMissingProprietaryCodecs(withCodecSupport(""))).toBe(true);
+    expect(isMissingProprietaryCodecs(withCodecSupport("probably"))).toBe(false);
+    expect(isMissingProprietaryCodecs(withCodecSupport(null))).toBe(false);
+    expect(isMissingProprietaryCodecs(withCodecSupport("", SAFARI_UA))).toBe(false);
+  });
+
+  it("survives a document that refuses to create elements", () => {
+    expect(
+      isMissingProprietaryCodecs(
+        createContext({
+          document: {
+            createElement: vi.fn(() => {
+              throw new Error("blocked");
+            }),
+          } as unknown as ExtendedWindow["document"],
+        }),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("navigator and plugin tampering", () => {
+  /** `Object.prototype.toString` only reports `[object Navigator]` for a real one. */
+  function withNativeNavigator(properties: PropertyDescriptorMap) {
+    const navigator = Object.create(
+      Object.defineProperties({}, properties),
+    ) as ExtendedNavigator;
+    Object.defineProperty(navigator, Symbol.toStringTag, {
+      value: "Navigator",
+    });
+    Object.assign(navigator, { userAgent: CHROME_UA });
+    const context = createContext();
+    context.navigator = navigator;
+    return context;
+  }
+
+  it("flags a navigator accessor replaced by a data property", () => {
+    expect(
+      isNativeFunctionTampered(
+        withNativeNavigator({
+          hardwareConcurrency: { value: 8, configurable: true },
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags a navigator getter whose source is not native code", () => {
+    expect(
+      isNativeFunctionTampered(
+        withNativeNavigator({
+          hardwareConcurrency: {
+            get: Object.assign(() => 8, {
+              toString: () => "function get hardwareConcurrency() { [native code] }",
+            }),
+            configurable: true,
+          },
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  function withPluginArray(
+    item: ((index: number) => unknown) | undefined,
+    mimeType?: unknown,
+  ) {
+    const plugin = { 0: mimeType, toString: () => "[object Plugin]" };
+    const plugins = {
+      0: plugin,
+      length: 1,
+      ...(item ? { item } : {}),
+    } as unknown as PluginArray;
+    return createContext({
+      navigator: { plugins, mimeTypes: { length: 1 } } as ExtendedNavigator,
+    });
+  }
+
+  it("flags a plugin array that does not wrap out-of-range indices", () => {
+    expect(
+      isPluginArrayInconsistent(withPluginArray(() => undefined)),
+    ).toBe(true);
+  });
+
+  it("flags a MIME entry that does not link back to its plugin", () => {
+    const context = withPluginArray(
+      (index: number) => (context.navigator.plugins as PluginArray)[index % 1],
+      { enabledPlugin: { name: "other" } },
+    );
+    expect(isPluginArrayInconsistent(context)).toBe(true);
+  });
+
+  it("accepts a native-shaped plugin array", () => {
+    const context = withPluginArray(
+      (index: number) => (context.navigator.plugins as PluginArray)[index % 1],
+    );
+    expect(isPluginArrayInconsistent(context)).toBe(false);
+
+    const linked = withPluginArray(
+      (index: number) => (linked.navigator.plugins as PluginArray)[index % 1],
+      {},
+    );
+    (linked.navigator.plugins[0]![0] as { enabledPlugin?: unknown }).enabledPlugin =
+      linked.navigator.plugins[0];
+    expect(isPluginArrayInconsistent(linked)).toBe(false);
+  });
+
+  it("flags a plugin array whose item() throws", () => {
+    expect(
+      isPluginArrayInconsistent(
+        withPluginArray(() => {
+          throw new Error("blocked");
+        }),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("media device enumeration", () => {
+  function withMediaDevices(
+    devices: MediaDeviceInfo[] | Error,
+    userAgent = CHROME_UA,
+  ) {
+    return createContext({
+      navigator: {
+        userAgent,
+        mediaDevices: {
+          enumerateDevices: vi.fn(() =>
+            devices instanceof Error
+              ? Promise.reject(devices)
+              : Promise.resolve(devices),
+          ),
+        },
+      } as unknown as ExtendedNavigator,
+    });
+  }
+
+  it("flags desktop Chromium with no audio or video endpoints", async () => {
+    await expect(checkMediaDevices(withMediaDevices([]))).resolves.toBe(true);
+    await expect(
+      checkMediaDevices(withMediaDevices([{ kind: "audiooutput" } as MediaDeviceInfo])),
+    ).resolves.toBe(false);
+  });
+
+  it("does not apply to mobile, non-Chromium, or unavailable APIs", async () => {
+    await expect(
+      checkMediaDevices(
+        withMediaDevices([], "Mozilla/5.0 (Linux; Android 14) Chrome/121.0.0.0 Mobile"),
+      ),
+    ).resolves.toBe(null);
+    await expect(checkMediaDevices(createContext())).resolves.toBe(null);
+    await expect(
+      checkMediaDevices(withMediaDevices(new Error("blocked"))),
+    ).resolves.toBe(null);
   });
 });
