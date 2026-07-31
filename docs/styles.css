@@ -24,6 +24,7 @@
   --good-text: #006300;
   --good-wash: rgba(12, 163, 12, 0.09);
   --warn: #b97800;
+  --warn-text: #7a4f00;
   --warn-wash: rgba(250, 178, 25, 0.14);
   --bad: #d03b3b;
   --bad-text: #b02a2a;
@@ -57,6 +58,7 @@
   --good-text: #34c534;
   --good-wash: rgba(12, 163, 12, 0.14);
   --warn: #fab219;
+  --warn-text: #fab219;
   --warn-wash: rgba(250, 178, 25, 0.12);
   --bad: #e05252;
   --bad-text: #ec8383;
@@ -87,6 +89,7 @@
     --good-text: #34c534;
     --good-wash: rgba(12, 163, 12, 0.14);
     --warn: #fab219;
+    --warn-text: #fab219;
     --warn-wash: rgba(250, 178, 25, 0.12);
     --bad: #e05252;
     --bad-text: #ec8383;
@@ -627,6 +630,35 @@ button {
   margin: 0;
   max-width: 46rem;
   color: var(--ink-secondary);
+}
+
+.section__note {
+  margin: 0.85rem 0 0;
+  max-width: 46rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius-sm);
+  background: var(--warn-wash);
+  color: var(--ink-secondary);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* Amber text rather than a filled pill: white on --warn drops to ~1.9:1 in
+   dark mode. --warn-text is the readable-on-wash variant, matching how
+   --good-text and --bad-text relate to their own accents. */
+.section__note-label {
+  flex: none;
+  color: var(--warn-text);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
 }
 
 .section__actions {
