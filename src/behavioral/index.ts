@@ -165,11 +165,33 @@ export function createBehavioralClientDetector(
     });
   };
 
-  const onTouchStart = (event: Event): void => {
+  /**
+   * Every touch is recorded, so tap-driven clicks stay exempt and untrusted
+   * events still count as synthetic. Coordinates are attached only for
+   * single-finger activity: pinch and rotate interleave contacts from several
+   * fingers, which would read as one point jumping between them. Samples
+   * without coordinates are skipped by the gesture heuristics.
+   */
+  const recordTouch = (event: Event, kind: "start" | "move"): void => {
+    const touchEvent = event as TouchEvent;
+    const point =
+      touchEvent.touches?.length === 1
+        ? touchEvent.changedTouches?.[0]
+        : undefined;
     record<TouchSample>(samples.touches, {
       t: Date.now(),
-      isTrusted: event.isTrusted,
+      isTrusted: touchEvent.isTrusted,
+      kind,
+      ...(point ? { x: point.clientX, y: point.clientY } : {}),
     });
+  };
+
+  const onTouchStart = (event: Event): void => {
+    recordTouch(event, "start");
+  };
+
+  const onTouchMove = (event: Event): void => {
+    recordTouch(event, "move");
   };
 
   const start = (): void => {
@@ -184,6 +206,7 @@ export function createBehavioralClientDetector(
     addListener(context, "keydown", onKeyDown);
     addListener(context, "click", onClick);
     addListener(context, "touchstart", onTouchStart);
+    addListener(context, "touchmove", onTouchMove);
 
     if (options.onUpdate) {
       pollTimer = setInterval(() => {
@@ -278,9 +301,12 @@ export {
   hasClickWithoutMouseMovement,
   hasLinearMouseMovement,
   hasLinearScroll,
+  hasLinearTapRhythm,
+  hasLinearTouchMovement,
   hasLinearTyping,
   hasNoMouseActivity,
   hasSyntheticEvents,
   hasTeleportMouse,
+  hasTeleportTouch,
   hasZeroMouseMovementDeltas,
 } from "./analysis.js";

@@ -359,7 +359,7 @@ const TRAIL_WINDOW_MS = 6_000;
 
 const trail = [];
 const marks = []; // clicks & synthetic events
-const counts = { moves: 0, scrolls: 0, keys: 0, clicks: 0, synthetic: 0 };
+const counts = { moves: 0, scrolls: 0, keys: 0, clicks: 0, touches: 0, synthetic: 0 };
 let trailSequence = 0;
 
 function sizeCanvas() {
@@ -396,6 +396,23 @@ window.addEventListener(
   },
   { passive: true },
 );
+
+// Touch draws the same trail as the mouse, so a phone or tablet shows a real
+// gesture path instead of an empty canvas. Only single-finger activity is
+// plotted; pinch and rotate interleave contacts and would zig-zag.
+function recordTouch(event) {
+  bumpCounter("count-touches", "touches");
+  if (!event.isTrusted) bumpCounter("count-synthetic", "synthetic");
+  if (event.touches.length !== 1) return;
+  const point = event.changedTouches[0];
+  if (!point) return;
+  trail.push({ ...toCanvas(point.clientX, point.clientY), t: performance.now(), trusted: event.isTrusted, seq: trailSequence });
+  trailSequence += 1;
+  if (trail.length > 600) trail.shift();
+}
+
+window.addEventListener("touchstart", recordTouch, { passive: true });
+window.addEventListener("touchmove", recordTouch, { passive: true });
 
 window.addEventListener(
   "click",
@@ -547,7 +564,7 @@ async function observe(durationMs = 5_000) {
 
   const button = $("observe-btn");
   button.disabled = true;
-  setBanner("behavioral", "pending", "Observing…", "Move, scroll, click, and type like you normally would");
+  setBanner("behavioral", "pending", "Observing…", "Move or swipe, scroll, tap, and type like you normally would");
 
   const detector = createBehavioralClientDetector({
     context: window,

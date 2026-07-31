@@ -7,10 +7,13 @@ import {
   hasClickWithoutMouseMovement,
   hasLinearMouseMovement,
   hasLinearScroll,
+  hasLinearTapRhythm,
+  hasLinearTouchMovement,
   hasLinearTyping,
   hasNoMouseActivity,
   hasSyntheticEvents,
   hasTeleportMouse,
+  hasTeleportTouch,
   hasZeroMouseMovementDeltas,
 } from "../src/behavioral/index.js";
 import type {
@@ -20,6 +23,7 @@ import type {
   KeySample,
   MouseSample,
   ScrollSample,
+  TouchSample,
 } from "../src/behavioral/types.js";
 
 function createLinearMouseMoves(count = 8): MouseSample[] {
@@ -483,7 +487,23 @@ describe("behavioral detector lifecycle", () => {
         detail: 1,
         isTrusted: false,
       });
-      context.emit("touchstart", { isTrusted: true });
+      // Single finger down and dragging: both carry coordinates.
+      context.emit("touchstart", {
+        isTrusted: true,
+        touches: { length: 1 },
+        changedTouches: [{ clientX: 40, clientY: 60 }],
+      });
+      context.emit("touchmove", {
+        isTrusted: true,
+        touches: { length: 1 },
+        changedTouches: [{ clientX: 48, clientY: 66 }],
+      });
+      // A second finger joins — recorded, but without a point to attribute.
+      context.emit("touchmove", {
+        isTrusted: true,
+        touches: { length: 2 },
+        changedTouches: [{ clientX: 300, clientY: 500 }],
+      });
 
       const active = detector.getResult();
 
@@ -492,7 +512,7 @@ describe("behavioral detector lifecycle", () => {
         scrolls: 1,
         keyPresses: 1,
         clicks: 1,
-        touches: 1,
+        touches: 3,
         syntheticEvents: 1,
       });
 
@@ -502,6 +522,8 @@ describe("behavioral detector lifecycle", () => {
       expect(context.count("wheel")).toBe(0);
       expect(context.count("keydown")).toBe(0);
       expect(context.count("click")).toBe(0);
+      expect(context.count("touchstart")).toBe(0);
+      expect(context.count("touchmove")).toBe(0);
       expect(context.count("touchstart")).toBe(0);
     } finally {
       vi.useRealTimers();
@@ -699,5 +721,131 @@ describe("behavioral detector lifecycle", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("touch gesture analysis", () => {
+  /** First point is the contact; the rest are the drag. */
+  const swipe = (
+    points: Array<{ x: number; y: number; t: number }>,
+  ): TouchSample[] =>
+    points.map((point, index) => ({
+      ...point,
+      isTrusted: true,
+      kind: index === 0 ? ("start" as const) : ("move" as const),
+    }));
+
+  /** A dispatched swipe interpolates: perfectly straight, perfectly even. */
+  const scriptedSwipe = (count = 12) =>
+    swipe(
+      Array.from({ length: count }, (_, index) => ({
+        x: 100 + index * 20,
+        y: 300,
+        t: 1_000 + index * 16,
+      })),
+    );
+
+  /** A finger arcs and its speed varies across the stroke. */
+  const humanSwipe = () =>
+    swipe(
+      [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((index) => ({
+        x: 100 + index * 17 + (index % 3) * 6,
+        y: 300 + Math.round(Math.sin(index / 2) * 14),
+        t: 1_000 + index * 16 + (index % 4) * 7,
+      })),
+    );
+
+  it("flags an interpolated swipe and clears a human one", () => {
+    expect(hasLinearTouchMovement(scriptedSwipe())).toBe(true);
+    expect(hasLinearTouchMovement(humanSwipe())).toBe(false);
+    expect(hasLinearTouchMovement([])).toBe(false);
+    expect(hasLinearTouchMovement()).toBe(false);
+  });
+
+  it("flags a contact point that jumps mid-gesture", () => {
+    expect(
+      hasTeleportTouch(
+        swipe([
+          { x: 100, y: 300, t: 1_000 },
+          { x: 900, y: 300, t: 1_010 },
+        ]),
+      ),
+    ).toBe(true);
+    expect(hasTeleportTouch(humanSwipe())).toBe(false);
+  });
+
+  it("does not read a finger lifting and landing elsewhere as a jump", () => {
+    // Two separate taps far apart: each contact starts a fresh gesture.
+    expect(
+      hasTeleportTouch([
+        { t: 1_000, isTrusted: true, kind: "start", x: 60, y: 100 },
+        { t: 1_008, isTrusted: true, kind: "move", x: 62, y: 102 },
+        { t: 1_012, isTrusted: true, kind: "start", x: 940, y: 700 },
+        { t: 1_020, isTrusted: true, kind: "move", x: 942, y: 702 },
+      ]),
+    ).toBe(false);
+  });
+
+  it("ignores multi-finger points that carry no coordinates", () => {
+    // Pinch: interleaved contacts recorded without coordinates.
+    const pinch: TouchSample[] = Array.from({ length: 14 }, (_, index) => ({
+      t: 1_000 + index * 16,
+      isTrusted: true,
+      kind: "move" as const,
+    }));
+    expect(hasLinearTouchMovement(pinch)).toBe(false);
+    expect(hasTeleportTouch(pinch)).toBe(false);
+  });
+
+  it("flags metronome and superhuman tap rhythm", () => {
+    const taps = (intervals: number[]): TouchSample[] => {
+      let t = 1_000;
+      return intervals.map((gap) => {
+        t += gap;
+        return { t, isTrusted: true, kind: "start" as const, x: 50, y: 50 };
+      });
+    };
+    expect(hasLinearTapRhythm(taps([200, 200, 200, 200, 200]))).toBe(true);
+    expect(hasLinearTapRhythm(taps([10, 12, 11, 9, 10]))).toBe(true);
+    expect(hasLinearTapRhythm(taps([180, 340, 210, 95, 420]))).toBe(false);
+    expect(hasLinearTapRhythm(taps([200, 200]))).toBe(false);
+    expect(hasLinearTapRhythm()).toBe(false);
+  });
+
+  it("treats samples without a kind as contacts, as older payloads were", () => {
+    const legacy: TouchSample[] = [200, 200, 200, 200, 200].map((gap, index) => ({
+      t: 1_000 + gap * (index + 1),
+      isTrusted: true,
+    }));
+    expect(hasLinearTapRhythm(legacy)).toBe(true);
+    expect(hasLinearTouchMovement(legacy)).toBe(false);
+    expect(hasTeleportTouch(legacy)).toBe(false);
+  });
+
+  it("scores a scripted swipe through the public API", () => {
+    const result = analyzeBehavioralSamples({
+      mouseMoves: [],
+      scrolls: [],
+      keyPresses: [],
+      clicks: [],
+      touches: scriptedSwipe(),
+      observationMs: 5_000,
+    });
+    expect(result.signals.filter((signal) => signal.triggered).map((signal) => signal.id))
+      .toContain("linear-touch-movement");
+    expect(result.sampleCounts.touches).toBe(12);
+  });
+
+  it("leaves an ordinary touch session alone", () => {
+    const result = analyzeBehavioralSamples({
+      mouseMoves: [],
+      scrolls: [],
+      keyPresses: [],
+      clicks: [{ x: 120, y: 400, t: 1_400, isTrusted: true, detail: 1 }],
+      touches: humanSwipe(),
+      observationMs: 5_000,
+    });
+    expect(result.suspicionScore).toBe(0);
+    expect(result.isLegitClient).toBe(true);
   });
 });

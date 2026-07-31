@@ -56,6 +56,17 @@ export interface ClickSample {
 export interface TouchSample {
   t: number;
   isTrusted: boolean;
+  /**
+   * Primary contact point. Absent in samples recorded before touch gestures
+   * were analysed, which the gesture heuristics skip rather than guess at.
+   */
+  x?: number;
+  y?: number;
+  /**
+   * `"start"` for a new contact, `"move"` while a finger drags. Absent in
+   * older samples, which were all contacts and are treated as `"start"`.
+   */
+  kind?: "start" | "move";
 }
 
 export interface BehavioralSamples {

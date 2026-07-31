@@ -165,9 +165,11 @@
               <p class="section__kicker">Layer 2 · over time</p>
               <h2 id="behavioral-title">Behavioral detection</h2>
               <p class="section__desc">
-                <code>createBehavioralClientDetector()</code> watches how the pointer, wheel, and
-                keyboard behave. Humans are noisy; scripts are not. Touch taps, keyboard clicks,
-                and key auto-repeat are recognized — they never count against you.
+                <code>createBehavioralClientDetector()</code> watches how the pointer, touch,
+                wheel, and keyboard behave. Humans are noisy; scripts are not. Swipe paths and tap
+                rhythm are scored the same way mouse movement is, so this works on a phone or
+                tablet. Keyboard clicks and key auto-repeat are recognized — they never count
+                against you.
               </p>
             </div>
             <div class="section__actions">
@@ -180,14 +182,15 @@
             <div class="trail-card">
               <div class="trail-card__head">
                 <h3>What the detector sees</h3>
-                <span class="trail-card__hint">move, scroll, click, type — anywhere on the page</span>
+                <span class="trail-card__hint">move or swipe, scroll, tap, type — anywhere on the page</span>
               </div>
-              <canvas id="trail-canvas" class="trail-canvas" aria-label="Live visualization of your recent mouse movement" role="img"></canvas>
+              <canvas id="trail-canvas" class="trail-canvas" aria-label="Live visualization of your recent pointer and touch movement" role="img"></canvas>
               <div class="trail-card__counters" aria-live="off">
                 <div class="counter"><span class="counter__value" id="count-moves">0</span><span class="counter__label">mouse moves</span></div>
                 <div class="counter"><span class="counter__value" id="count-scrolls">0</span><span class="counter__label">scrolls</span></div>
                 <div class="counter"><span class="counter__value" id="count-keys">0</span><span class="counter__label">keys</span></div>
                 <div class="counter"><span class="counter__value" id="count-clicks">0</span><span class="counter__label">clicks</span></div>
+                <div class="counter"><span class="counter__value" id="count-touches">0</span><span class="counter__label">touches</span></div>
                 <div class="counter"><span class="counter__value" id="count-synthetic">0</span><span class="counter__label">synthetic</span></div>
               </div>
               <label class="type-field">

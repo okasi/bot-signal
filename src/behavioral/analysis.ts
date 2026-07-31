@@ -41,6 +41,8 @@ const SCROLL_LINEAR_WINDOW = 8;
 
 /** Minimum samples required before we consider a trace for linearity. */
 const MIN_MOUSE_FOR_LINEAR = 6;
+const MIN_TOUCH_MOVES_FOR_LINEAR = 6;
+const MIN_TAPS_FOR_LINEAR = 5;
 const MIN_MOUSE_FOR_ZERO_DELTAS = 51;
 const MIN_SCROLL_FOR_LINEAR = 4;
 const MIN_KEYS_FOR_LINEAR = 5;
@@ -56,6 +58,10 @@ const MOUSE_MAX_LINE_DEVIATION = 4;
 
 /** Typing faster than this average interval (ms) is considered superhuman. */
 const TYPING_SUPERHUMAN_INTERVAL_MS = 25;
+
+/** Tap rhythm cutoffs, mirroring the typing ones — a finger is no steadier. */
+const TAP_CV_INTERVAL_MAX = 0.08;
+const TAP_SUPERHUMAN_INTERVAL_MS = 25;
 
 /**
  * Returns true if the whole trace, or any contiguous `window`-length slice of
@@ -97,7 +103,14 @@ function coefficientOfVariation(values: number[]): number {
   return Math.sqrt(variance) / Math.abs(average);
 }
 
-function maxLineDeviation(points: MouseSample[]): number {
+/** Anything with a position and a timestamp — a mouse move or a touch move. */
+interface PointSample {
+  x: number;
+  y: number;
+  t: number;
+}
+
+function maxLineDeviation(points: PointSample[]): number {
   const start = points[0];
   const end = points[points.length - 1];
   const lineLength = Math.hypot(end.x - start.x, end.y - start.y);
@@ -136,7 +149,7 @@ function createSignal(
   };
 }
 
-function isLinearMouseSegment(points: MouseSample[]): boolean {
+function isLinearPointerSegment(points: PointSample[]): boolean {
   const speeds: number[] = [];
 
   for (let index = 1; index < points.length; index += 1) {
@@ -169,7 +182,7 @@ export function hasLinearMouseMovement(mouseMoves: MouseSample[]): boolean {
     return false;
   }
 
-  return anyLinearWindow(mouseMoves, MOUSE_LINEAR_WINDOW, isLinearMouseSegment);
+  return anyLinearWindow(mouseMoves, MOUSE_LINEAR_WINDOW, isLinearPointerSegment);
 }
 
 /** More than 50 mouse events all report zero browser-provided movement deltas. */
@@ -184,10 +197,10 @@ export function hasZeroMouseMovementDeltas(mouseMoves: MouseSample[]): boolean {
  * Cursor covered an implausible distance between closely-spaced events.
  * @internal
  */
-export function hasTeleportMouse(mouseMoves: MouseSample[]): boolean {
-  for (let index = 1; index < mouseMoves.length; index += 1) {
-    const previous = mouseMoves[index - 1];
-    const current = mouseMoves[index];
+function hasTeleport(points: PointSample[]): boolean {
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const current = points[index];
     const elapsed = current.t - previous.t;
 
     if (elapsed > TELEPORT_MAX_ELAPSED_MS) {
@@ -206,6 +219,10 @@ export function hasTeleportMouse(mouseMoves: MouseSample[]): boolean {
   }
 
   return false;
+}
+
+export function hasTeleportMouse(mouseMoves: MouseSample[]): boolean {
+  return hasTeleport(mouseMoves);
 }
 
 /**
@@ -309,6 +326,88 @@ export function hasLinearTyping(keyPresses: KeySample[]): boolean {
   return intervalUniformity < TYPING_CV_INTERVAL_MAX || averageInterval < TYPING_SUPERHUMAN_INTERVAL_MS;
 }
 
+/** Samples without `kind` predate gesture analysis and were all contacts. */
+function isTouchContact(touch: TouchSample): boolean {
+  return touch.kind !== "move";
+}
+
+function isLocatedTouch(
+  touch: TouchSample,
+): touch is TouchSample & PointSample {
+  return typeof touch.x === "number" && typeof touch.y === "number";
+}
+
+/**
+ * Splits a touch stream into individual gestures. Each new contact starts a
+ * fresh one, so a finger lifting and landing elsewhere — or a second finger
+ * joining — never reads as one continuous path.
+ */
+function splitTouchGestures(touches: TouchSample[]): PointSample[][] {
+  const gestures: PointSample[][] = [];
+  let current: PointSample[] = [];
+
+  for (const touch of touches) {
+    if (isTouchContact(touch)) {
+      if (current.length > 0) {
+        gestures.push(current);
+      }
+      current = [];
+    }
+    if (isLocatedTouch(touch)) {
+      current.push(touch);
+    }
+  }
+
+  if (current.length > 0) {
+    gestures.push(current);
+  }
+
+  return gestures;
+}
+
+/**
+ * A swipe traced a near-perfect line at near-constant speed. Real fingers
+ * arc and vary; a dispatched touch sequence interpolates.
+ * @internal
+ */
+export function hasLinearTouchMovement(touches: TouchSample[] = []): boolean {
+  return splitTouchGestures(touches).some(
+    (gesture) =>
+      gesture.length >= MIN_TOUCH_MOVES_FOR_LINEAR &&
+      anyLinearWindow(gesture, MOUSE_LINEAR_WINDOW, isLinearPointerSegment),
+  );
+}
+
+/**
+ * A contact point jumped an implausible distance mid-gesture.
+ * @internal
+ */
+export function hasTeleportTouch(touches: TouchSample[] = []): boolean {
+  return splitTouchGestures(touches).some(hasTeleport);
+}
+
+/**
+ * Taps land on a metronome, or faster than a finger can lift and fall.
+ * @internal
+ */
+export function hasLinearTapRhythm(touches: TouchSample[] = []): boolean {
+  const contacts = touches.filter(isTouchContact);
+
+  if (contacts.length < MIN_TAPS_FOR_LINEAR) {
+    return false;
+  }
+
+  const intervals: number[] = [];
+  for (let index = 1; index < contacts.length; index += 1) {
+    intervals.push(contacts[index].t - contacts[index - 1].t);
+  }
+
+  return (
+    coefficientOfVariation(intervals) < TAP_CV_INTERVAL_MAX ||
+    mean(intervals) < TAP_SUPERHUMAN_INTERVAL_MS
+  );
+}
+
 /**
  * Any observed event was script-dispatched (`isTrusted === false`).
  * @internal
@@ -367,6 +466,27 @@ export function buildBehavioralSignals(samples: BehavioralSamples): BehavioralSi
       hasTeleportMouse(samples.mouseMoves),
       0.4,
       "high",
+    ),
+    createSignal(
+      "linear-touch-movement",
+      "Swipe path is unusually straight with uniform speed",
+      hasLinearTouchMovement(touches),
+      0.25,
+      "medium",
+    ),
+    createSignal(
+      "teleport-touch",
+      "Touch point jumped implausibly mid-gesture",
+      hasTeleportTouch(touches),
+      0.4,
+      "high",
+    ),
+    createSignal(
+      "linear-tap-rhythm",
+      "Tap intervals are robotic or superhuman",
+      hasLinearTapRhythm(touches),
+      0.3,
+      "medium",
     ),
     createSignal(
       "linear-scroll",

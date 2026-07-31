@@ -335,9 +335,20 @@ diagnostic objects.
 | `linear-mouse-movement` | 0.25 | medium | Straight path, uniform speed |
 | `zero-mouse-movement-deltas` | 0.30 | medium | More than 50 mouse events all report zero `movementX`/`movementY` |
 | `teleport-mouse` | 0.40 | high | Implausible cursor jumps between closely-spaced events |
+| `linear-touch-movement` | 0.25 | medium | Swipe path is straight with uniform speed |
+| `teleport-touch` | 0.40 | high | Contact point jumps implausibly mid-gesture |
+| `linear-tap-rhythm` | 0.30 | medium | Robotic or superhuman tap intervals |
 | `linear-scroll` | 0.30 | medium | Uniform scroll deltas/timing |
 | `linear-typing` | 0.35 | high | Robotic or superhuman intervals (key auto-repeat excluded) |
 | `synthetic-events` | 0.50 | high | `isTrusted === false` |
+
+Touch devices are scored, not just tolerated: swipe paths and tap rhythm go
+through the same linearity and teleport heuristics as mouse movement, so a
+phone or tablet is analysed rather than waved through. Each new contact starts
+a fresh gesture, so lifting a finger and landing elsewhere never reads as a
+jump, and multi-finger activity (pinch, rotate) is recorded but excluded from
+gesture analysis, since interleaved contacts would look like one point
+teleporting between fingers.
 
 Touch taps, keyboard-activated clicks (`detail === 0`), and cursor re-entry
 after leaving the window are recognized and never counted against the user.

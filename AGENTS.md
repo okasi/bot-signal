@@ -38,7 +38,7 @@ src/
   asyncChecks.ts              # CDP, permissions, high-entropy UA-CH, media devices, worker checks
   webgpu.ts                   # shader-f16 + isChromiumBrowser
   behavioral/
-    analysis.ts               # mouse/scroll/typing/touch heuristics
+    analysis.ts               # mouse/touch-gesture/scroll/typing heuristics
     scoring.ts                # weighted score aggregation
     index.ts                  # detector (DOM event listener lifecycle)
     types.ts
