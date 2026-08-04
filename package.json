@@ -1,6 +1,6 @@
 {
   "name": "bot-signal",
-  "version": "2.0.12",
+  "version": "2.0.13",
   "description": "Bot detection for JavaScript and Node.js: detect headless Chrome, Playwright, Puppeteer, Selenium and scripted input. Simple isHuman() API plus weighted instant, behavioral, and server signals (IP, TLS/JA3, timezone). No API keys.",
   "license": "MIT",
   "author": "okasi",
