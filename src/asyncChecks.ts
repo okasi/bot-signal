@@ -7,6 +7,32 @@ import { isChromiumBrowser } from "./webgpu.js";
 const scheduleDetectorTask = globalThis.setTimeout.bind(globalThis);
 const cancelDetectorTask = globalThis.clearTimeout.bind(globalThis);
 
+/**
+ * Voices that ship only with Apple's speech synthesiser. Two or more of these
+ * on a machine claiming another operating system means the platform is spoofed;
+ * one alone could be a third-party voice pack borrowing a common first name.
+ */
+const APPLE_ONLY_VOICES = new Set([
+  "Alex",
+  "Daniel",
+  "Fiona",
+  "Fred",
+  "Karen",
+  "Kyoko",
+  "Lekha",
+  "Moira",
+  "Rishi",
+  "Samantha",
+  "Sin-ji",
+  "Tessa",
+  "Ting-Ting",
+  "Victoria",
+  "Yuna",
+]);
+
+/** How long to wait for `voiceschanged` before giving up on the voice list. */
+const VOICE_LIST_TIMEOUT_MS = 300;
+
 function bestEffort(action: () => void): void {
   try {
     action();
@@ -148,6 +174,81 @@ export async function checkMediaDevices(
   } catch {
     return null;
   }
+}
+
+/** Resolves once the voice list is populated, or after a short timeout. */
+async function readVoices(
+  synthesis: SpeechSynthesis,
+): Promise<SpeechSynthesisVoice[]> {
+  const voices = synthesis.getVoices();
+  if (voices.length > 0 || typeof synthesis.addEventListener !== "function") {
+    return voices;
+  }
+
+  // Chromium populates the list asynchronously on the first call.
+  await new Promise<void>((resolve) => {
+    const deadline = scheduleDetectorTask(resolve, VOICE_LIST_TIMEOUT_MS);
+    synthesis.addEventListener(
+      "voiceschanged",
+      () => {
+        bestEffort(() => cancelDetectorTask(deadline));
+        resolve();
+      },
+      { once: true },
+    );
+  });
+
+  return synthesis.getVoices();
+}
+
+/**
+ * The installed speech voices contradict the platform the client claims.
+ *
+ * The voice list comes from the operating system and from the browser vendor's
+ * own bundle, neither of which a User-Agent rewrite reaches. Anti-detect
+ * browsers ship dedicated voice-table spoofing precisely because of this.
+ */
+export async function checkSpeechVoices(
+  context: ExtendedWindow,
+): Promise<boolean | null> {
+  const synthesis = context.speechSynthesis;
+  if (!synthesis || typeof synthesis.getVoices !== "function") {
+    return null;
+  }
+
+  let voices: SpeechSynthesisVoice[];
+  try {
+    voices = await readVoices(synthesis);
+  } catch {
+    return null;
+  }
+  if (voices.length === 0) {
+    return null;
+  }
+
+  const names = voices.map((voice) => voice.name);
+  const userAgent = context.navigator.userAgent;
+
+  if (!/(?:Macintosh|Mac OS X|iPhone|iPad|iPod)/i.test(userAgent)) {
+    const appleVoices = names.filter((name) => APPLE_ONLY_VOICES.has(name));
+    if (appleVoices.length >= 2) {
+      return true;
+    }
+  }
+
+  // Google's own voices come from a component that ships in branded Chrome and
+  // not in the open-source Chromium builds automation runs. Only Windows and
+  // macOS are judged: a Linux desktop can legitimately expose nothing but the
+  // local speech-dispatcher voices.
+  const claimsGoogleChrome = context.navigator.userAgentData?.brands.some(
+    (brand) => /^Google Chrome$/i.test(brand.brand),
+  );
+
+  return Boolean(
+    claimsGoogleChrome &&
+      /(?:Windows|Macintosh|Mac OS X)/i.test(userAgent) &&
+      !names.some((name) => name.startsWith("Google ")),
+  );
 }
 
 /** Notification.permission disagrees with navigator.permissions.query(). */

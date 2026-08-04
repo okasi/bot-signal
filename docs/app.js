@@ -84,6 +84,9 @@ const CHECKS = [
   ["isMediaQueryInconsistent", "The CSS resolution query contradicts the reported devicePixelRatio", "bad"],
   ["isScreenGeometryInconsistent", "Screen reports impossible geometry or colour depth", "bad"],
   ["isMissingProprietaryCodecs", "Chromium build without H.264 — an unbranded automation build", "bad"],
+  ["isTimezoneInconsistent", "The IANA time zone Intl resolves contradicts the UTC offset Date reports", "bad"],
+  ["isMissingGreaseBrand", "Client Hints brands omit the GREASE entry every Chromium build injects", "bad"],
+  ["isCanvasNoiseInjected", "Two identical canvas renders read back different pixels", "bad"],
   ["isLanguageInconsistent", "navigator.language conflicts with navigator.languages", "bad"],
   ["isPluginMimeTypeInconsistent", "Plugin and MIME-type arrays disagree", "bad"],
   ["isSuspiciousResolution", "Screen smaller than any real device (136×170)", "bad"],
@@ -104,6 +107,7 @@ const CHECKS = [
   ["isWorkerWebGLInconsistent", "Worker and page WebGL identities disagree (async run)", "async-bad"],
   ["isCdpDetectedInWorker", "CDP serialized an Error inside a worker (async run)", "async-bad"],
   ["isMissingMediaDevices", "Desktop Chromium enumerated no audio or video devices (async run)", "async-bad"],
+  ["isVoiceListInconsistent", "Installed speech voices contradict the claimed platform or browser brand (async run)", "async-bad"],
   ["isChromium", "Chromium-based browser — decides which checks apply", "info"],
 ];
 

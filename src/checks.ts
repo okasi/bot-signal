@@ -37,6 +37,14 @@ const CANVAS_CHANNEL_TOLERANCE = 8;
 /** Colour depths real display pipelines report; anything else is fabricated. */
 const ALLOWED_COLOR_DEPTHS = [8, 15, 16, 24, 30, 32, 48];
 
+/**
+ * Chromium appends a GREASE brand — a deliberately varied nonsense entry such
+ * as `"Not/A)Brand"` — to every `userAgentData.brands` list so that servers
+ * cannot hardcode the set. The punctuation between the words is arbitrary by
+ * design, so match the words rather than any one spelling.
+ */
+const GREASE_BRAND_PATTERN = /not[^a-z0-9]*a[^a-z0-9]*brand/i;
+
 /** Navigator properties every engine exposes as prototype accessors. */
 const NAVIGATOR_ACCESSOR_PROPERTIES = [
   "webdriver",
@@ -721,9 +729,37 @@ export function isNavigatorIdentityInconsistent(context: ExtendedWindow): boolea
     return true;
   }
 
+  // `oscpu` is Gecko-only, and Gecko keeps it in step with the User-Agent.
+  // Anywhere else it is a leftover from a partially rewritten identity.
+  const oscpu = navigator.oscpu;
+  if (typeof oscpu === "string" && oscpu) {
+    if (!/\bFirefox\//i.test(userAgent)) {
+      return true;
+    }
+    if (platformContradictsUserAgent(oscpu, userAgent)) {
+      return true;
+    }
+  }
+
   return /(?:Mobi|Android|iPhone|iPad)/i.test(userAgent) &&
     navigator.maxTouchPoints !== undefined &&
     navigator.maxTouchPoints === 0;
+}
+
+/**
+ * `userAgentData.brands` omits Chromium's GREASE entry.
+ *
+ * Every Chromium build injects one, so a list without it was assembled by hand
+ * — the signature of Client Hints set through an automation override rather
+ * than produced by the browser.
+ */
+export function isMissingGreaseBrand(context: ExtendedWindow): boolean {
+  const brands = context.navigator.userAgentData?.brands;
+  if (!brands || brands.length === 0) {
+    return false;
+  }
+
+  return !brands.some((brand) => GREASE_BRAND_PATTERN.test(brand.brand));
 }
 
 /** PluginArray/MimeTypeArray objects or entries do not use native prototypes. */
@@ -983,6 +1019,140 @@ export function isCanvasTampered(context: ExtendedWindow): boolean {
         typeof channel !== "number" ||
         Math.abs(channel - expected[index]!) > CANVAS_CHANNEL_TOLERANCE,
     );
+  } catch {
+    return false;
+  }
+}
+
+const CANVAS_PROBE_WIDTH = 64;
+const CANVAS_PROBE_HEIGHT = 24;
+
+/**
+ * Renders a fixed 2D scene and reads its pixels back, or `null` if unavailable.
+ *
+ * Deliberately reads pixels rather than `toDataURL()`. PNG encoding is not
+ * byte-stable — Chromium hands back different encodings of identical pixels on
+ * repeated calls — so comparing the encoded strings would flag stock browsers.
+ */
+function renderCanvasProbe(
+  context: ExtendedWindow,
+): ArrayLike<number> | null {
+  try {
+    const canvas = context.document.createElement("canvas");
+    canvas.width = CANVAS_PROBE_WIDTH;
+    canvas.height = CANVAS_PROBE_HEIGHT;
+    const canvasContext = canvas.getContext("2d");
+    if (!canvasContext) {
+      return null;
+    }
+
+    // Text and translucent overlap are what fingerprint scripts hash, so they
+    // are what noise injectors perturb. A flat fill alone would not move.
+    canvasContext.textBaseline = "top";
+    canvasContext.font = "14px 'Arial'";
+    canvasContext.fillStyle = "#f60";
+    canvasContext.fillRect(0, 0, 44, 12);
+    canvasContext.fillStyle = "#069";
+    canvasContext.fillText("bot,signal", 2, 2);
+    canvasContext.fillStyle = "rgba(102, 204, 0, 0.7)";
+    canvasContext.fillText("bot,signal", 4, 6);
+    const { data } = canvasContext.getImageData(
+      0,
+      0,
+      CANVAS_PROBE_WIDTH,
+      CANVAS_PROBE_HEIGHT,
+    );
+
+    return data.length > 0 ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Canvas rasterisation changes between two identical renders.
+ *
+ * Drawing is deterministic within a session on every real engine, and the
+ * fingerprint protection that ships in browsers — Brave's farbling, Firefox in
+ * resistFingerprinting mode — derives its noise from a per-session, per-origin
+ * seed, so it too returns the same pixels twice. Only a spoofer that
+ * re-randomises on every call disagrees with itself.
+ */
+export function isCanvasNoiseInjected(context: ExtendedWindow): boolean {
+  const first = renderCanvasProbe(context);
+  if (first === null) {
+    return false;
+  }
+  const second = renderCanvasProbe(context);
+  if (second === null || second.length !== first.length) {
+    return false;
+  }
+
+  for (let index = 0; index < first.length; index += 1) {
+    if (first[index] !== second[index]) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * The IANA time zone `Intl` resolves disagrees with `Date`'s UTC offset.
+ *
+ * Both read the same host setting, so they cannot legitimately diverge. Tools
+ * that relocate a browser by patching one of the two — a `Date.getTimezoneOffset`
+ * override, or a CDP timezone override applied to only one realm — split them.
+ */
+export function isTimezoneInconsistent(context: ExtendedWindow): boolean {
+  const intl = context.Intl ?? Intl;
+  const dateConstructor = context.Date ?? Date;
+
+  try {
+    const zone = intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (!zone) {
+      return false;
+    }
+
+    const now = new dateConstructor();
+    const reportedOffset = -now.getTimezoneOffset();
+    if (!Number.isFinite(reportedOffset)) {
+      return false;
+    }
+
+    const parts = new intl.DateTimeFormat("en-US", {
+      timeZone: zone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }).formatToParts(now);
+    const field = (type: string): number =>
+      Number(parts.find((part) => part.type === type)?.value);
+
+    // Reading the wall clock of the named zone as if it were UTC turns the
+    // difference from the real instant into that zone's offset.
+    const asUtc = dateConstructor.UTC(
+      field("year"),
+      field("month") - 1,
+      field("day"),
+      field("hour"),
+      field("minute"),
+      field("second"),
+    );
+    if (!Number.isFinite(asUtc)) {
+      return false;
+    }
+
+    // `formatToParts` has no milliseconds, so compare against a truncated instant.
+    const zoneOffset = Math.round(
+      (asUtc - Math.floor(now.getTime() / 1000) * 1000) / 60000,
+    );
+
+    return Math.abs(zoneOffset - reportedOffset) > 1;
   } catch {
     return false;
   }

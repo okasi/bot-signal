@@ -127,6 +127,25 @@ to `page.evaluate`.
 
 Prefer low false-positive signals. Use weighted scoring for ambiguous checks.
 
+### Verifying a new signal
+
+Unit tests prove the logic; they cannot prove the premise. Before adding a
+check that asserts "real browsers always do X", measure X in a real browser —
+repeatedly, and on more than one origin. Two premises have already failed that
+test in this repo:
+
+- `screen.colorDepth` does not track the CSS `color` query (Opera reports 24 on
+  a 10-bit panel), which is why `isMediaQueryInconsistent` compares resolution
+  only.
+- `canvas.toDataURL()` is not byte-stable. Identical pixels produced different
+  PNG encodings on the same Chromium build depending on the page's origin, so
+  `isCanvasNoiseInjected` compares `getImageData` pixels instead.
+
+Anything a browser's fingerprint protection is free to rewrite — locale,
+`hardwareConcurrency`, UA strings, colour depth — is too soft to judge a client
+on. Build cross-realm and consistency checks on values protection does not
+touch.
+
 ## IP blocklists
 
 **Do not hand-edit** `data/*.csv`. Update `scripts/update-ip-data.ts` instead.

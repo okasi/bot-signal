@@ -8,11 +8,13 @@ import {
   checkHighEntropyUserAgentData,
   checkMediaDevices,
   checkNotificationPermissionConsistency,
+  checkSpeechVoices,
   checkWorkerConsistency,
 } from "./asyncChecks.js";
 import {
   getPropertySafely,
   hasWebGlContext,
+  isCanvasNoiseInjected,
   isCanvasTampered,
   isChromeDriver,
   isDefaultAutomationViewport,
@@ -25,6 +27,7 @@ import {
   isLegacyAutomationArtifacts,
   isMediaQueryInconsistent,
   isMissingChromeObject,
+  isMissingGreaseBrand,
   isMissingProprietaryCodecs,
   isNativeFunctionTampered,
   isNavigatorIdentityInconsistent,
@@ -38,6 +41,7 @@ import {
   isSuspiciousHardware,
   isSuspiciousWebDriverDescriptor,
   isSuspiciousWindowDimensions,
+  isTimezoneInconsistent,
   isUserAgentDataMismatch,
   isZeroConnectionRtt,
 } from "./checks.js";
@@ -121,7 +125,10 @@ const INSTANT_SIGNAL_SPECS: InstantSignalSpec[] = [
   { id: "isMediaQueryInconsistent", description: "The CSS resolution query contradicts the reported devicePixelRatio", weight: 0.5, confidence: "medium" },
   { id: "isLanguageInconsistent", description: "Navigator language values are inconsistent", weight: 0.45, confidence: "medium" },
   { id: "isScreenGeometryInconsistent", description: "Screen reports impossible geometry or colour depth", weight: 0.45, confidence: "medium" },
+  { id: "isTimezoneInconsistent", description: "The resolved IANA time zone contradicts the UTC offset Date reports", weight: 0.5, confidence: "medium" },
   { id: "isMissingProprietaryCodecs", description: "Chromium build without H.264 support (unbranded automation build)", weight: 0.4, confidence: "low" },
+  { id: "isMissingGreaseBrand", description: "Client Hints brands omit the GREASE entry every Chromium build injects", weight: 0.4, confidence: "medium" },
+  { id: "isCanvasNoiseInjected", description: "Two identical canvas renders read back differently", weight: 0.35, confidence: "medium" },
   { id: "isPluginMimeTypeInconsistent", description: "Plugin and MIME-type arrays are inconsistent", weight: 0.45, confidence: "medium" },
   { id: "isMissingChromeObject", description: "Chromium user agent without window.chrome", weight: 0.35, confidence: "low" },
   { id: "isWebGLSupported", description: "No WebGL context available", weight: 0.35, confidence: "low", triggerWhenFalse: true },
@@ -152,6 +159,7 @@ const INSTANT_ASYNC_SIGNAL_SPECS: AsyncSignalSpec[] = [
   { id: "isWorkerWebGLInconsistent", description: "Worker and page WebGL identities disagree", weight: 0.35, confidence: "medium" },
   { id: "isCdpDetectedInWorker", description: "Chrome DevTools Protocol serialized an Error inside a worker", weight: 0.25, confidence: "medium" },
   { id: "isMissingMediaDevices", description: "Desktop Chromium enumerated no audio or video devices", weight: 0.3, confidence: "low" },
+  { id: "isVoiceListInconsistent", description: "Installed speech voices contradict the claimed platform or browser brand", weight: 0.35, confidence: "medium" },
 ];
 
 function parseBrowserVersion(userAgent: string, pattern: RegExp): number {
@@ -260,6 +268,9 @@ function detectSync(context: ExtendedWindow): BooleanChecks {
     isMediaQueryInconsistent: isMediaQueryInconsistent(context),
     isScreenGeometryInconsistent: isScreenGeometryInconsistent(context),
     isMissingProprietaryCodecs: isMissingProprietaryCodecs(context),
+    isCanvasNoiseInjected: isCanvasNoiseInjected(context),
+    isTimezoneInconsistent: isTimezoneInconsistent(context),
+    isMissingGreaseBrand: isMissingGreaseBrand(context),
   };
 }
 
@@ -544,6 +555,7 @@ export async function detectInstantClientAsync(
     isNotificationPermissionInconsistent,
     isHighEntropyUserAgentDataMismatch,
     isMissingMediaDevices,
+    isVoiceListInconsistent,
     workerChecks,
   ] = await Promise.all([
     isChromium ? checkShaderF16Support(context) : Promise.resolve(null),
@@ -551,6 +563,7 @@ export async function detectInstantClientAsync(
     checkNotificationPermissionConsistency(context),
     checkHighEntropyUserAgentData(context),
     checkMediaDevices(context),
+    checkSpeechVoices(context),
     checkWorkerConsistency(context),
   ]);
   const asyncChecks: InstantAsyncChecks = {
@@ -559,6 +572,7 @@ export async function detectInstantClientAsync(
     isNotificationPermissionInconsistent,
     isHighEntropyUserAgentDataMismatch,
     isMissingMediaDevices,
+    isVoiceListInconsistent,
     ...workerChecks,
   };
 
@@ -601,6 +615,7 @@ export async function isHumanAsync(
 
 export {
   isAutomationArtifacts,
+  isCanvasNoiseInjected,
   isCanvasTampered,
   isChromeDriver,
   isDefaultAutomationViewport,
@@ -612,6 +627,7 @@ export {
   isLanguageInconsistent,
   isMediaQueryInconsistent,
   isMissingChromeObject,
+  isMissingGreaseBrand,
   isMissingProprietaryCodecs,
   isNativeFunctionTampered,
   isNavigatorIdentityInconsistent,
@@ -624,6 +640,7 @@ export {
   isSuspiciousHardware,
   isSuspiciousWebDriverDescriptor,
   isSuspiciousWindowDimensions,
+  isTimezoneInconsistent,
   isUserAgentDataMismatch,
   isZeroConnectionRtt,
 } from "./checks.js";
@@ -632,6 +649,7 @@ export {
   checkHighEntropyUserAgentData,
   checkMediaDevices,
   checkNotificationPermissionConsistency,
+  checkSpeechVoices,
   checkWorkerConsistency,
 } from "./asyncChecks.js";
 export type { WorkerChecks } from "./asyncChecks.js";

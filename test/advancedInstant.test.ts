@@ -4,8 +4,12 @@ import {
   checkCdpRuntime,
   checkHighEntropyUserAgentData,
   checkNotificationPermissionConsistency,
+  checkSpeechVoices,
   checkWorkerConsistency,
   buildInstantSignals,
+  isCanvasNoiseInjected,
+  isMissingGreaseBrand,
+  isTimezoneInconsistent,
   detectInstantClient,
   detectInstantClientAsync,
   isAutomationArtifacts,
@@ -2514,5 +2518,489 @@ describe("cross-realm persona comparison", () => {
         { userAgent: OPERA_UA, platform: "MacIntel" },
       ),
     ).toBe(false);
+  });
+});
+
+const FIREFOX_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
+
+/**
+ * A document whose canvases read back the supplied pixel runs in order, with a
+ * 2D context complete enough that the other canvas checks stay quiet.
+ *
+ * `isCanvasTampered` reads a 1x1 canvas and `isCanvasNoiseInjected` a 64x24
+ * one, so the mock keys off the requested size: the small read always returns
+ * the untampered pixel and only the large read draws from `runs`.
+ */
+function createCanvasDocument(
+  runs: Array<number[] | null> | (() => number[] | null),
+): ExtendedWindow["document"] {
+  let call = 0;
+  const nextRun =
+    typeof runs === "function"
+      ? runs
+      : () => {
+          const run = runs[call] ?? null;
+          call += 1;
+          return run;
+        };
+  const webGl = {
+    getExtension: vi.fn().mockReturnValue({ UNMASKED_RENDERER_WEBGL: 1 }),
+    getParameter: vi.fn().mockReturnValue("ANGLE (NVIDIA)"),
+  };
+  const createElement = vi.fn(() => {
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn((kind: string) => {
+        if (kind === "webgl") {
+          return webGl;
+        }
+        if (kind !== "2d") {
+          return null;
+        }
+        if (canvas.width > 1) {
+          const run = nextRun();
+          if (run === null) {
+            return null;
+          }
+          return {
+            textBaseline: "",
+            font: "",
+            fillStyle: "",
+            fillRect: vi.fn(),
+            fillText: vi.fn(),
+            getImageData: () => ({ data: run }),
+          };
+        }
+        return {
+          fillStyle: "",
+          clearRect: vi.fn(),
+          fillRect: vi.fn(),
+          getImageData: () => ({ data: [17, 34, 51, 255] }),
+        };
+      }),
+    };
+
+    return canvas;
+  });
+
+  return { createElement } as unknown as ExtendedWindow["document"];
+}
+
+describe("canvas readback determinism", () => {
+  it("passes a canvas that renders identically twice", () => {
+    const context = createContext({
+      document: createCanvasDocument([[1, 2, 3, 255], [1, 2, 3, 255]]),
+    });
+
+    expect(isCanvasNoiseInjected(context)).toBe(false);
+  });
+
+  it("flags a canvas that re-randomises on every read", () => {
+    const context = createContext({
+      document: createCanvasDocument([[1, 2, 3, 255], [1, 2, 4, 255]]),
+    });
+
+    expect(isCanvasNoiseInjected(context)).toBe(true);
+  });
+
+  it("passes a canvas that is blocked entirely rather than perturbed", () => {
+    const context = createContext({
+      document: createCanvasDocument([[0, 0, 0, 0], [0, 0, 0, 0]]),
+    });
+
+    expect(isCanvasNoiseInjected(context)).toBe(false);
+  });
+
+  it("fails open when no 2D context is available", () => {
+    const context = createContext({ document: createCanvasDocument([null, null]) });
+
+    expect(isCanvasNoiseInjected(context)).toBe(false);
+  });
+
+  it("fails open when only the second render is unavailable", () => {
+    const context = createContext({
+      document: createCanvasDocument([[1, 2, 3, 255], null]),
+    });
+
+    expect(isCanvasNoiseInjected(context)).toBe(false);
+  });
+
+  it("fails open when the readback is empty", () => {
+    const context = createContext({ document: createCanvasDocument([[], []]) });
+
+    expect(isCanvasNoiseInjected(context)).toBe(false);
+  });
+
+  it("fails open when the two readbacks are different sizes", () => {
+    const context = createContext({
+      document: createCanvasDocument([[1, 2, 3, 255], [1, 2, 3]]),
+    });
+
+    expect(isCanvasNoiseInjected(context)).toBe(false);
+  });
+
+  it("fails open when creating a canvas throws", () => {
+    const context = createContext({
+      document: {
+        createElement: vi.fn(() => {
+          throw new Error("blocked");
+        }),
+      } as unknown as ExtendedWindow["document"],
+    });
+
+    expect(isCanvasNoiseInjected(context)).toBe(false);
+  });
+
+  it("contributes to the score without blocking on its own", () => {
+    let seed = 0;
+    const result = detectInstantClient(
+      createContext({
+        document: createCanvasDocument(() => {
+          seed += 1;
+          return [seed, 2, 3, 255];
+        }),
+      }),
+    );
+
+    expect(
+      result.signals.find((signal) => signal.id === "isCanvasNoiseInjected")
+        ?.triggered,
+    ).toBe(true);
+    expect(result.isLegitClient).toBe(true);
+  });
+});
+
+describe("time zone self-consistency", () => {
+  /** A `Date` whose UTC offset is pinned, leaving `Intl` reading the real host. */
+  function createPinnedDate(offsetMinutes: number): DateConstructor {
+    return class extends Date {
+      getTimezoneOffset(): number {
+        return offsetMinutes;
+      }
+    } as unknown as DateConstructor;
+  }
+
+  const hostOffset = new Date().getTimezoneOffset();
+
+  it("passes when Intl and Date describe the same zone", () => {
+    const context = createContext({ Date: createPinnedDate(hostOffset) });
+
+    expect(isTimezoneInconsistent(context)).toBe(false);
+  });
+
+  it("flags a Date offset that contradicts the resolved zone", () => {
+    const context = createContext({ Date: createPinnedDate(hostOffset + 180) });
+
+    expect(isTimezoneInconsistent(context)).toBe(true);
+  });
+
+  it("uses the ambient Intl and Date when the context exposes neither", () => {
+    expect(isTimezoneInconsistent(createContext())).toBe(false);
+  });
+
+  it("fails open when the engine resolves no zone", () => {
+    const context = createContext({
+      Intl: {
+        DateTimeFormat: function () {
+          return { resolvedOptions: () => ({ timeZone: "" }) };
+        },
+      } as unknown as typeof Intl,
+    });
+
+    expect(isTimezoneInconsistent(context)).toBe(false);
+  });
+
+  it("fails open when the offset is not a number", () => {
+    const context = createContext({ Date: createPinnedDate(Number.NaN) });
+
+    expect(isTimezoneInconsistent(context)).toBe(false);
+  });
+
+  it("fails open when the formatted parts are unusable", () => {
+    let call = 0;
+    const context = createContext({
+      Intl: {
+        DateTimeFormat: function () {
+          call += 1;
+          return call === 1
+            ? { resolvedOptions: () => ({ timeZone: "Europe/Berlin" }) }
+            : { formatToParts: () => [{ type: "year", value: "yyyy" }] };
+        },
+      } as unknown as typeof Intl,
+    });
+
+    expect(isTimezoneInconsistent(context)).toBe(false);
+  });
+
+  it("fails open when Intl throws", () => {
+    const context = createContext({
+      Intl: {
+        DateTimeFormat: function () {
+          throw new Error("no ICU");
+        },
+      } as unknown as typeof Intl,
+    });
+
+    expect(isTimezoneInconsistent(context)).toBe(false);
+  });
+});
+
+describe("Client Hints GREASE brand", () => {
+  it("passes a stock Chromium brand list", () => {
+    const context = createContext({
+      navigator: {
+        userAgentData: {
+          brands: [
+            { brand: "Not/A)Brand", version: "99" },
+            { brand: "Google Chrome", version: "121" },
+            { brand: "Chromium", version: "121" },
+          ],
+        },
+      } as Partial<ExtendedNavigator> as ExtendedNavigator,
+    });
+
+    expect(isMissingGreaseBrand(context)).toBe(false);
+  });
+
+  it("accepts every punctuation variant Chromium has shipped", () => {
+    for (const brand of ["Not_A Brand", "Not;A Brand", " Not A;Brand", "Not.A/Brand"]) {
+      const context = createContext({
+        navigator: {
+          userAgentData: { brands: [{ brand, version: "99" }] },
+        } as Partial<ExtendedNavigator> as ExtendedNavigator,
+      });
+
+      expect(isMissingGreaseBrand(context)).toBe(false);
+    }
+  });
+
+  it("flags a hand-assembled brand list", () => {
+    const context = createContext({
+      navigator: {
+        userAgentData: {
+          brands: [
+            { brand: "Google Chrome", version: "121" },
+            { brand: "Chromium", version: "121" },
+          ],
+        },
+      } as Partial<ExtendedNavigator> as ExtendedNavigator,
+    });
+
+    expect(isMissingGreaseBrand(context)).toBe(true);
+  });
+
+  it("stays quiet on engines without Client Hints", () => {
+    expect(isMissingGreaseBrand(createContext())).toBe(false);
+    expect(
+      isMissingGreaseBrand(
+        createContext({
+          navigator: {
+            userAgentData: { brands: [] },
+          } as Partial<ExtendedNavigator> as ExtendedNavigator,
+        }),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("Gecko oscpu leakage", () => {
+  it("flags oscpu on a browser that has no such property", () => {
+    expect(
+      isNavigatorIdentityInconsistent(
+        createContext({
+          navigator: {
+            oscpu: "Windows NT 10.0; Win64; x64",
+          } as Partial<ExtendedNavigator> as ExtendedNavigator,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("passes Firefox reporting an oscpu that matches its User-Agent", () => {
+    expect(
+      isNavigatorIdentityInconsistent(
+        createContext({
+          navigator: {
+            userAgent: FIREFOX_UA,
+            appVersion: FIREFOX_UA,
+            vendor: "",
+            productSub: "20100101",
+            oscpu: "Windows NT 10.0; Win64; x64",
+          } as Partial<ExtendedNavigator> as ExtendedNavigator,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("flags Firefox whose oscpu names a different operating system", () => {
+    expect(
+      isNavigatorIdentityInconsistent(
+        createContext({
+          navigator: {
+            userAgent: FIREFOX_UA,
+            appVersion: FIREFOX_UA,
+            vendor: "",
+            productSub: "20100101",
+            oscpu: "Intel Mac OS X 10.15",
+          } as Partial<ExtendedNavigator> as ExtendedNavigator,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("ignores an empty oscpu string", () => {
+    expect(
+      isNavigatorIdentityInconsistent(
+        createContext({
+          navigator: { oscpu: "" } as Partial<ExtendedNavigator> as ExtendedNavigator,
+        }),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("speech voice platform attribution", () => {
+  function createSpeechContext(
+    voices: string[],
+    overrides: Partial<ExtendedNavigator> = {},
+    synthesisOverrides: Record<string, unknown> = {},
+  ): ExtendedWindow {
+    return createContext({
+      navigator: overrides as ExtendedNavigator,
+      speechSynthesis: {
+        getVoices: vi.fn(() => voices.map((name) => ({ name }))),
+        ...synthesisOverrides,
+      } as unknown as SpeechSynthesis,
+    });
+  }
+
+  it("returns null without a speech synthesiser", async () => {
+    await expect(checkSpeechVoices(createContext())).resolves.toBeNull();
+  });
+
+  it("returns null when the voice list stays empty", async () => {
+    await expect(checkSpeechVoices(createSpeechContext([]))).resolves.toBeNull();
+  });
+
+  it("returns null when reading voices throws", async () => {
+    const context = createContext({
+      speechSynthesis: {
+        getVoices: () => {
+          throw new Error("blocked");
+        },
+      } as unknown as SpeechSynthesis,
+    });
+
+    await expect(checkSpeechVoices(context)).resolves.toBeNull();
+  });
+
+  it("waits for voiceschanged before judging", async () => {
+    let voices: Array<{ name: string }> = [];
+    const context = createContext({
+      speechSynthesis: {
+        getVoices: () => voices,
+        addEventListener: (_event: string, listener: () => void) => {
+          voices = [{ name: "Samantha" }, { name: "Moira" }];
+          setTimeout(listener, 0);
+        },
+      } as unknown as SpeechSynthesis,
+    });
+
+    await expect(checkSpeechVoices(context)).resolves.toBe(true);
+  });
+
+  it("gives up when voiceschanged never fires", async () => {
+    const context = createContext({
+      speechSynthesis: {
+        getVoices: () => [],
+        addEventListener: () => {},
+      } as unknown as SpeechSynthesis,
+    });
+
+    await expect(checkSpeechVoices(context)).resolves.toBeNull();
+  });
+
+  it("flags Apple-exclusive voices on a Windows client", async () => {
+    await expect(
+      checkSpeechVoices(createSpeechContext(["Samantha", "Daniel", "Microsoft David"])),
+    ).resolves.toBe(true);
+  });
+
+  it("tolerates a single Apple-sounding voice name", async () => {
+    await expect(
+      checkSpeechVoices(createSpeechContext(["Alex", "Microsoft David"])),
+    ).resolves.toBe(false);
+  });
+
+  it("expects Apple voices on a Mac", async () => {
+    const macUa =
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36";
+
+    await expect(
+      checkSpeechVoices(
+        createSpeechContext(["Samantha", "Daniel"], {
+          userAgent: macUa,
+          appVersion: macUa,
+          platform: "MacIntel",
+        }),
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it("flags branded Chrome that ships none of Google's own voices", async () => {
+    await expect(
+      checkSpeechVoices(
+        createSpeechContext(["Microsoft David", "Microsoft Zira"], {
+          userAgentData: {
+            brands: [
+              { brand: "Not/A)Brand", version: "99" },
+              { brand: "Google Chrome", version: "121" },
+            ],
+          },
+        } as Partial<ExtendedNavigator>),
+      ),
+    ).resolves.toBe(true);
+  });
+
+  it("passes branded Chrome with Google voices present", async () => {
+    await expect(
+      checkSpeechVoices(
+        createSpeechContext(["Microsoft David", "Google US English"], {
+          userAgentData: {
+            brands: [{ brand: "Google Chrome", version: "121" }],
+          },
+        } as Partial<ExtendedNavigator>),
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it("does not judge Chromium builds that make no Chrome claim", async () => {
+    await expect(
+      checkSpeechVoices(
+        createSpeechContext(["Microsoft David"], {
+          userAgentData: { brands: [{ brand: "Chromium", version: "121" }] },
+        } as Partial<ExtendedNavigator>),
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it("leaves Linux desktops alone", async () => {
+    const linuxUa =
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36";
+
+    await expect(
+      checkSpeechVoices(
+        createSpeechContext(["espeak-ng"], {
+          userAgent: linuxUa,
+          appVersion: linuxUa,
+          platform: "Linux x86_64",
+          userAgentData: {
+            brands: [{ brand: "Google Chrome", version: "121" }],
+          },
+        } as Partial<ExtendedNavigator>),
+      ),
+    ).resolves.toBe(false);
   });
 });

@@ -13,6 +13,8 @@ export interface ExtendedDocument extends Document {
 export interface ExtendedNavigator extends Omit<Navigator, "gpu"> {
   gpu?: GPU;
   deviceMemory?: number;
+  /** Gecko-only OS/CPU string; absent in every other engine. */
+  oscpu?: string;
   connection?: { rtt?: number };
   userAgentData?: {
     brands: Array<{ brand: string; version: string }>;
@@ -34,8 +36,10 @@ export interface ExtendedNavigator extends Omit<Navigator, "gpu"> {
 
 export interface ExtendedWindow extends Omit<Window, "document" | "navigator"> {
   Blob?: typeof Blob;
+  Date?: DateConstructor;
   Error?: ErrorConstructor;
   Function?: FunctionConstructor;
+  Intl?: typeof Intl;
   MimeType?: { prototype: MimeType; new (): MimeType };
   MimeTypeArray?: { prototype: MimeTypeArray; new (): MimeTypeArray };
   Notification?: typeof Notification;
@@ -137,6 +141,9 @@ export interface InstantClientResult {
   isMediaQueryInconsistent: boolean;
   isScreenGeometryInconsistent: boolean;
   isMissingProprietaryCodecs: boolean;
+  isCanvasNoiseInjected: boolean;
+  isTimezoneInconsistent: boolean;
+  isMissingGreaseBrand: boolean;
   isChromium: boolean;
   /**
    * 0 (human) to 1 (definitely automated), aggregated as `1 - Π(1 - weightᵢ)`
@@ -173,7 +180,10 @@ type ExtendedInstantCheck =
   | "isGpuPlatformMismatch"
   | "isMediaQueryInconsistent"
   | "isScreenGeometryInconsistent"
-  | "isMissingProprietaryCodecs";
+  | "isMissingProprietaryCodecs"
+  | "isCanvasNoiseInjected"
+  | "isTimezoneInconsistent"
+  | "isMissingGreaseBrand";
 
 /** Boolean inputs accepted by {@link buildInstantSignals}. */
 export type InstantSignalChecks =
@@ -199,6 +209,12 @@ export interface InstantClientAsyncResult extends InstantClientResult {
   isCdpDetectedInWorker: boolean | null;
   /** Desktop Chromium enumerated no media devices at all; `null` when unavailable */
   isMissingMediaDevices: boolean | null;
+  /**
+   * Installed speech voices contradict the claimed platform; `null` when
+   * unavailable. Added after the original public shape; optional so existing
+   * producers of this type keep compiling.
+   */
+  isVoiceListInconsistent?: boolean | null;
 }
 
 /** Async-only values accepted by {@link buildInstantSignals}. */
@@ -213,4 +229,5 @@ export type InstantAsyncChecks = Pick<
   | "isWorkerWebGLInconsistent"
   | "isCdpDetectedInWorker"
   | "isMissingMediaDevices"
+  | "isVoiceListInconsistent"
 >;

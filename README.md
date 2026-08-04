@@ -4,9 +4,14 @@
 
 # bot-signal
 
-**bot-signal** — bot signal detection in the browser and on the server.
+**Bot detection for JavaScript and Node.js — detect headless Chrome, Playwright, Puppeteer, Selenium and scripted input.**
 
-Provides a simple `isHuman()` function plus full multi-layer signals (instant browser checks, behavioral analysis, and server-side IP/TLS/timezone validation). Zero external API keys.
+`bot-signal` is an open-source, TypeScript-first bot detection library that scores three
+independent layers: **instant** browser checks (automation artifacts, native tampering,
+cross-realm and GPU contradictions, CDP), **behavioral** analysis of mouse, touch, scroll and
+typing, and **server-side** IP reputation, TLS/JA3 fingerprint and timezone validation. Start
+with one `isHuman()` call, or read every weighted signal yourself. No API keys, no external
+service, no data leaves your infrastructure.
 
 [![npm version](https://img.shields.io/npm/v/bot-signal.svg)](https://www.npmjs.com/package/bot-signal)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -277,7 +282,10 @@ applications can reuse those global names.
 | `isLanguageInconsistent` | 0.45 | `language` disagrees with `languages[0]` |
 | `isPluginMimeTypeInconsistent` | 0.45 | Plugins and MIME types were patched inconsistently |
 | `isScreenGeometryInconsistent` | 0.45 | `availWidth`/`availHeight` exceed the screen, or an impossible colour depth |
+| `isTimezoneInconsistent` | 0.5 | The IANA zone `Intl` resolves contradicts the UTC offset `Date` reports |
 | `isMissingProprietaryCodecs` | 0.4 | Chromium build with no H.264 (unbranded automation image, not Google Chrome) |
+| `isMissingGreaseBrand` | 0.4 | Client Hints brands omit the GREASE entry every Chromium build injects |
+| `isCanvasNoiseInjected` | 0.35 | Two identical canvas renders read back different **pixels** |
 | `isMissingChromeObject` | 0.35 | Chromium without `window.chrome` (in-app browsers) |
 | `isWebGLSupported` | 0.35 | No WebGL context (GPU-less VMs, headless Chromium 139+) |
 | `isSuspiciousWindowDimensions` | 0.3 | Zero outer size, or no browser chrome + origin placement (F11 fullscreen) |
@@ -296,6 +304,7 @@ applications can reuse those global names.
 | `isWorkerWebGLInconsistent` | 0.35 | Async — non-empty unmasked WebGL vendor/renderer values disagree between page and worker |
 | `isCdpDetectedInWorker` | 0.25 | Async — CDP serialized an `Error` in a worker (deduplicated with page CDP) |
 | `isMissingMediaDevices` | 0.3 | Async — desktop Chromium enumerated no audio or video devices |
+| `isVoiceListInconsistent` | 0.35 | Async — installed speech voices contradict the claimed platform or browser brand |
 
 **Browser fingerprint protection is not automation.** Protection rewrites
 Navigator values per realm by design — Opera 133 reports 2 cores and a
@@ -330,6 +339,14 @@ against `devicePixelRatio` — Opera reports `screen.colorDepth` 24 on a 10-bit
 display, so no mapping onto the CSS `color` query survives contact with a stock
 browser — and `isCanvasTampered` allows ±8 per channel, clearing both
 colour-managed readback and injected per-origin noise.
+
+`isCanvasNoiseInjected` is the complement to that tolerance: instead of asking
+what a pixel is, it asks whether the same render answers twice the same way.
+Fingerprint protection that ships in a browser seeds its noise per session and
+per origin, so it stays self-consistent; only a spoofer that re-randomises on
+every call disagrees with itself. It compares **pixels**, never `toDataURL()`:
+PNG encoding is not byte-stable, and identical pixels were measured producing
+different encodings on the same Chromium build depending on the page's origin.
 
 Signals weighted below the 0.5 threshold are soft: individually they flag but
 don't block, so common false-positive cases (in-app browsers, kiosk fullscreen,
@@ -455,6 +472,12 @@ browser feature absence into bot evidence.
 | [CrawlerDetect](https://crawlerdetect.io/) | Conservative bot/crawler UA tokens are detected in both browser and server layers | A broad self-declared-UA corpus is neither proof of automation nor verified crawler identity, so it is not imported wholesale |
 | [Cloudflare Web Bot Auth test](https://crawltest.com/cdn-cgi/web-bot-auth) | Cryptographic verification is performed at the edge; a successful trusted verdict can feed `crawlerVerificationStatus: "verified"` | This package does not verify HTTP Message Signatures locally; Cloudflare 401 conflates unknown keys with signature failure, so 400/401/non-200 responses must remain `unverified`, not `spoofed` |
 | [Google crawler verification](https://developers.google.com/crawling/docs/crawlers-fetchers/verify-google-requests) / [Bingbot verification](https://www.bing.com/webmasters/help/how-to-verify-bingbot-3905dc26) | A trusted Google/Bing FCrDNS result, or a Google published-IP-range result, can feed `crawlerVerificationStatus`; conclusive spoofing adds a high-confidence signal | DNS verification and Google range refresh belong in infrastructure with caching; lookup failures must remain `unverified`, and Bing ranges must not be hardcoded |
+| [VexTrio Fingerprint Analyzer](https://github.com/HackingLZ/fingerprint_js) — the [threat actor's own script](https://gi7w0rm.medium.com/vextrios-browser-fingerprinting-aeb721be6e30), plus 2022–2025 extensions | Language/screen/platform/`oscpu`/`productSub`/ETSL/WebGL-vendor contradictions, automation globals, permission anomalies, GREASE brands, Intl-vs-`Date` timezone, deviceMemory grid, Apple/Google speech voices | `AudioContext.sampleRate`, `pdfViewerEnabled`, `document.hasFocus()`, and macOS `screen.availTop` are rejected: Bluetooth audio, a user setting, a background tab, and a secondary display each move them on real hardware |
+| [rebrowser-patches](https://github.com/rebrowser/rebrowser-patches) | Each leak it patches is a detection vector — `Runtime.Enable` CDP serialization, `pptr:` source URLs, utility-world names, exposed bindings — and all are already scored | The patches themselves are evasion tooling; the value here is the enumeration of what leaks, not the fixes |
+| [CloakBrowser](https://github.com/CloakHQ/CloakBrowser) | Its 71 source-level spoofing patches read backwards as a detection map: canvas/audio/WebGL noise seeds, screen and hardware overrides, timezone/locale, and the dedicated Windows speech-voice tables that motivated `isVoiceListInconsistent` | Font metrics, storage quota, and WebRTC ICE candidates are fingerprint inputs or need infrastructure, and are not scored locally |
+| [niespodd/browser-fingerprinting](https://github.com/niespodd/browser-fingerprinting) | Survey of anti-bot vendors and stealth tooling; confirms canvas/audio override detection and cross-realm inconsistency as the durable signal classes | p0f TCP-stack OS matching and font-rendering-backend leaks are edge/infrastructure concerns, not browser-side checks |
+| [azerpas/detect-headless](https://github.com/azerpas/detect-headless) | Compiles the Akamai/DataDome property probes — automation globals, `window.chrome`, WebRTC presence, screen/window geometry, ChromeDriver `cdc_` keys | Bare capability presence (`XDomainRequest`, `DeviceMotionEvent`, `emit`, `spawn`) is not bot evidence on its own |
+| [paulirish/headless-cat-n-mouse](https://github.com/paulirish/headless-cat-n-mouse) / [infosimples/detect-headless](https://github.com/infosimples/detect-headless) | The detection-vs-evasion pairs it tracks are covered by the headless UA, `window.chrome`, permission, plugin, and RTT signals | Already reflected in the InfoSimples row above |
 
 Challenge-only tests belong in the host application because they require a
 nonce, CSP policy, instrumented main world, network endpoint, or historical

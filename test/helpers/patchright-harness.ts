@@ -52,6 +52,9 @@ export const INSTANT_RESULT_KEYS = [
   "isMediaQueryInconsistent",
   "isScreenGeometryInconsistent",
   "isMissingProprietaryCodecs",
+  "isCanvasNoiseInjected",
+  "isTimezoneInconsistent",
+  "isMissingGreaseBrand",
   "isChromium",
   "isLegitClient",
 ] as const;
