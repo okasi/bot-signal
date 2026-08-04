@@ -1,7 +1,7 @@
 {
   "name": "bot-signal",
   "version": "2.0.12",
-  "description": "bot-signal: multi-layer bot/automation detection. Simple isHuman() API plus instant, behavioral, and server signals (IP, TLS, timezone).",
+  "description": "Bot detection for JavaScript and Node.js: detect headless Chrome, Playwright, Puppeteer, Selenium and scripted input. Simple isHuman() API plus weighted instant, behavioral, and server signals (IP, TLS/JA3, timezone). No API keys.",
   "license": "MIT",
   "author": "okasi",
   "repository": {
@@ -123,7 +123,18 @@
     "scraping",
     "browser-automation",
     "mouse-movement",
-    "behavioral-analysis"
+    "behavioral-analysis",
+    "bot",
+    "anti-bot",
+    "bot-protection",
+    "headless-detection",
+    "headless-browser-detection",
+    "chromedriver",
+    "cdp",
+    "anti-detect",
+    "browser-fingerprinting",
+    "device-fingerprint",
+    "web-scraping-protection"
   ],
   "dependencies": {
     "doc999tor-fast-geoip": "^1.1.443"

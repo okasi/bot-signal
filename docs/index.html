@@ -3,18 +3,125 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>bot-signal — bot signal detection</title>
+    <title>bot-signal — Bot &amp; Headless Browser Detection for JavaScript</title>
     <meta
       name="description"
-      content="Live demo of bot-signal: instant automation checks, behavioral scoring with a live mouse trail, and an interactive server-signal simulator."
+      content="Open-source bot detection for JavaScript and Node.js. Detect headless Chrome, Playwright, Puppeteer, Selenium and scripted mouse or touch input. Run the checks against your own browser."
     />
-    <meta property="og:title" content="bot-signal — bot signal detection" />
+    <link rel="canonical" href="https://okasi.github.io/bot-signal/" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="bot-signal" />
+    <meta property="og:url" content="https://okasi.github.io/bot-signal/" />
+    <meta
+      property="og:title"
+      content="bot-signal — Bot &amp; Headless Browser Detection for JavaScript"
+    />
     <meta
       property="og:description"
-      content="Run instant automation checks and live behavioral scoring against your own browser."
+      content="Detect headless Chrome, Playwright, Puppeteer and Selenium in the browser and on the server. Run the real library against your own browser."
     />
+    <meta property="og:image" content="https://okasi.github.io/bot-signal/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="bot-signal — multi-layer bot detection for JavaScript and Node.js"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="bot-signal — Bot &amp; Headless Browser Detection for JavaScript"
+    />
+    <meta
+      name="twitter:description"
+      content="Detect headless Chrome, Playwright, Puppeteer and Selenium in the browser and on the server."
+    />
+    <meta name="twitter:image" content="https://okasi.github.io/bot-signal/og.png" />
+
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./styles.css" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "SoftwareSourceCode",
+            "@id": "https://okasi.github.io/bot-signal/#software",
+            "name": "bot-signal",
+            "description": "Multi-layer bot and automation detection for JavaScript and Node.js: instant browser checks, behavioral scoring, and server-side IP, TLS, and timezone signals.",
+            "url": "https://okasi.github.io/bot-signal/",
+            "codeRepository": "https://github.com/okasi/bot-signal",
+            "programmingLanguage": "TypeScript",
+            "runtimePlatform": ["Node.js", "Web browser"],
+            "license": "https://opensource.org/licenses/MIT",
+            "author": { "@type": "Person", "name": "okasi" },
+            "keywords": "bot detection, headless browser detection, Playwright detection, Puppeteer detection, Selenium detection, WebDriver, browser fingerprinting, anti-bot"
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://okasi.github.io/bot-signal/#website",
+            "name": "bot-signal",
+            "url": "https://okasi.github.io/bot-signal/",
+            "about": { "@id": "https://okasi.github.io/bot-signal/#software" }
+          },
+          {
+            "@type": "FAQPage",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "Can bot-signal detect headless Chrome?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. It checks the HeadlessChrome User-Agent, appVersion and Client Hints brands, plus indirect tells such as a software WebGL renderer, missing media devices, an unbranded Chromium build with no H.264, and zero Network Information RTT."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Does it detect Playwright, Puppeteer and Selenium?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. It looks for Playwright bindings and init scripts, Puppeteer evaluation artifacts, ChromeDriver cdc_ keys and Selenium document markers, and it detects the Chrome DevTools Protocol by its Error serialization side effect in both the page and a worker."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Does bot-signal need an API key or external service?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "No. The GeoIP database and IP blocklists are bundled with the package and refreshed weekly, so detection runs entirely on your own infrastructure."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Will it block real users by mistake?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Every signal carries a weight and a confidence level. Definitive automation markers weigh 0.9 to 1.0 and block on their own, while ambiguous checks that also fire on in-app browsers, virtual machines, and privacy-hardened browsers weigh 0.25 to 0.5 so they only block when several stack up. Browser fingerprint protection is treated as a privacy feature, not as automation."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can a determined bot evade it?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. Client-side detection is a cost, not a wall, and a purpose-built anti-detect browser can pass the instant checks. That is why the library scores three independent layers: forging the browser environment, human-looking mouse and touch input, and a residential IP with a matching TLS fingerprint all at once is a much higher bar than any one of them."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Does it work with React, Next.js or plain HTML?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "All three. The package ships ESM and CJS builds with TypeScript types, resolves to a browser-only bundle in browser bundlers, and is also published as a script tag build on unpkg for pages with no build step."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    </script>
     <script>
       // Apply the stored theme before first paint to avoid a flash.
       const storedTheme = localStorage.getItem("dbc-theme");
@@ -37,6 +144,7 @@
           <a href="#behavioral">Behavioral</a>
           <a href="#server">Server</a>
           <a href="#quickstart">Quick start</a>
+          <a href="#faq">FAQ</a>
         </nav>
         <div class="topbar__actions">
           <button id="theme-toggle" class="icon-btn" type="button" aria-label="Toggle color theme">
@@ -59,12 +167,14 @@
       <section class="hero">
         <div class="shell hero__inner">
           <div class="hero__copy">
-            <p class="eyebrow">Live demo — everything runs in your browser</p>
-            <h1 class="hero__title">Is your browser<br /><span id="hero-highlight" class="hero__highlight">being scanned…</span></h1>
+            <h1 class="hero__title">
+              <span class="hero__eyebrow">Bot detection for JavaScript &amp; Node.js — live demo</span>
+              Is your browser<br /><span id="hero-highlight" class="hero__highlight">being scanned…</span>
+            </h1>
             <p class="hero__lede">
-              <strong>bot-signal</strong> (npm package `bot-signal`) spots headless browsers, automation frameworks, and
-              scripted interaction — in the browser and on the server. This page runs the real
-              library against <em>you</em>.
+              <strong>bot-signal</strong> detects headless Chrome, Playwright, Puppeteer and
+              Selenium, and scores scripted mouse, touch and typing input — in the browser and
+              on the server. This page runs the real library against <em>you</em>.
             </p>
             <div class="install" role="group" aria-label="Install command">
               <code class="install__cmd" id="install-cmd">npm install bot-signal</code>
@@ -358,6 +468,90 @@
 });
 
 <span class="tok-kw">if</span> (!result.isLegitClient) res.<span class="tok-fn">status</span>(<span class="tok-num">403</span>).<span class="tok-fn">end</span>();</code></pre>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================== FAQ =============================== -->
+      <section class="section" id="faq" aria-labelledby="faq-title">
+        <div class="shell">
+          <header class="section__head">
+            <div>
+              <p class="section__kicker">Questions</p>
+              <h2 id="faq-title">Frequently asked</h2>
+              <p class="section__desc">
+                What the library detects, and where it deliberately stops.
+              </p>
+            </div>
+          </header>
+
+          <div class="faq">
+            <article class="faq__item">
+              <h3>Can bot-signal detect headless Chrome?</h3>
+              <p>
+                Yes. It checks the <code>HeadlessChrome</code> User-Agent,
+                <code>appVersion</code> and Client Hints brands, plus the indirect
+                tells that survive a User-Agent rewrite: a software WebGL renderer
+                (SwiftShader or llvmpipe), no enumerable media devices, an
+                unbranded Chromium build with no H.264 support, and a zero
+                Network Information RTT.
+              </p>
+            </article>
+
+            <article class="faq__item">
+              <h3>Does it detect Playwright, Puppeteer and Selenium?</h3>
+              <p>
+                Yes. It looks for Playwright bindings and init scripts, Puppeteer
+                evaluation artifacts, ChromeDriver <code>cdc_</code> keys and
+                Selenium document markers. It also detects the Chrome DevTools
+                Protocol itself, by the <code>Error</code> serialization side
+                effect it leaves in both the page and a dedicated worker — which
+                catches automation that has scrubbed its own globals.
+              </p>
+            </article>
+
+            <article class="faq__item">
+              <h3>Does it need an API key or an external service?</h3>
+              <p>
+                No. The GeoIP database and the IP blocklists ship inside the
+                package and are refreshed weekly, so every layer runs on your own
+                infrastructure with nothing phoning home.
+              </p>
+            </article>
+
+            <article class="faq__item">
+              <h3>Will it block real users by mistake?</h3>
+              <p>
+                Every signal carries a weight and a confidence level. Definitive
+                automation markers weigh 0.9–1.0 and block on their own, while
+                ambiguous checks that also fire on in-app browsers, virtual
+                machines and privacy-hardened browsers weigh 0.25–0.5, so they
+                only block when several stack up. Browser fingerprint protection
+                is treated as a privacy feature, not as automation.
+              </p>
+            </article>
+
+            <article class="faq__item">
+              <h3>Can a determined bot evade it?</h3>
+              <p>
+                Yes — client-side detection is a cost, not a wall. A purpose-built
+                anti-detect browser can pass the instant checks. That is why the
+                library scores three independent layers: forging the browser
+                environment, human-looking mouse and touch input, and a residential
+                IP with a matching TLS fingerprint all at once is a much higher bar
+                than any one of them.
+              </p>
+            </article>
+
+            <article class="faq__item">
+              <h3>Does it work with React, Next.js or plain HTML?</h3>
+              <p>
+                All three. The package ships ESM and CJS builds with TypeScript
+                types, resolves to a browser-only bundle in browser bundlers, and
+                is also published as a script tag build on unpkg for pages with no
+                build step.
+              </p>
             </article>
           </div>
         </div>

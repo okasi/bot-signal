@@ -370,6 +370,16 @@ button {
   font-weight: 750;
 }
 
+.hero__eyebrow {
+  display: block;
+  margin-bottom: 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
 .hero__highlight {
   color: var(--ink-muted);
   transition: color 0.4s ease;
@@ -1605,4 +1615,39 @@ button {
   .banner .pill {
     display: none;
   }
+}
+
+/* ------------------------------- FAQ -------------------------------- */
+
+.faq {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(21rem, 1fr));
+  gap: 1rem;
+}
+
+.faq__item {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 1.15rem 1.25rem;
+}
+
+.faq__item h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.02rem;
+  letter-spacing: -0.01em;
+}
+
+.faq__item p {
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.faq__item code {
+  background: var(--accent-wash);
+  padding: 0.1em 0.35em;
+  border-radius: 5px;
 }
