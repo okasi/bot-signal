@@ -131,6 +131,11 @@ export function createBehavioralClientDetector(
       y: mouseEvent.clientY,
       movementX: mouseEvent.movementX,
       movementY: mouseEvent.movementY,
+      pageX: mouseEvent.pageX,
+      pageY: mouseEvent.pageY,
+      screenX: mouseEvent.screenX,
+      screenY: mouseEvent.screenY,
+      isFullscreen: context.outerHeight - context.innerHeight <= 1,
       t: Date.now(),
       isTrusted: mouseEvent.isTrusted,
     });
@@ -162,6 +167,11 @@ export function createBehavioralClientDetector(
       t: Date.now(),
       isTrusted: mouseEvent.isTrusted,
       detail: mouseEvent.detail,
+      pageX: mouseEvent.pageX,
+      pageY: mouseEvent.pageY,
+      screenX: mouseEvent.screenX,
+      screenY: mouseEvent.screenY,
+      isFullscreen: context.outerHeight - context.innerHeight <= 1,
     });
   };
 
@@ -298,6 +308,7 @@ export {
 } from "./scoring.js";
 export {
   buildBehavioralSignals,
+  hasCdpInputCoordinateLeak,
   hasClickWithoutMouseMovement,
   hasLinearMouseMovement,
   hasLinearScroll,

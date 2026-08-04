@@ -4,6 +4,7 @@ import {
   aggregateSuspicionScore,
   buildBehavioralSignals,
   createBehavioralClientDetector,
+  hasCdpInputCoordinateLeak,
   hasClickWithoutMouseMovement,
   hasLinearMouseMovement,
   hasLinearScroll,
@@ -187,6 +188,62 @@ describe("behavioral analysis", () => {
         ({ id }) => id === "zero-mouse-movement-deltas",
       ),
     ).toMatchObject({ triggered: true, weight: 0.3, confidence: "medium" });
+  });
+
+  it("detects repeated trusted CDP Input coordinate leakage", () => {
+    const leaked = (position: number): MouseSample => ({
+      x: position,
+      y: position,
+      pageX: position,
+      pageY: position + 1,
+      screenX: position,
+      screenY: position + 1,
+      isFullscreen: false,
+      t: position,
+      isTrusted: true,
+    });
+    const first = leaked(10);
+    const second = leaked(20);
+
+    expect(hasCdpInputCoordinateLeak([first, second], [])).toBe(true);
+    expect(
+      buildBehavioralSignals(
+        createSamples({ mouseMoves: [first, second] }),
+      ).find(({ id }) => id === "cdp-input-coordinate-leak"),
+    ).toMatchObject({ triggered: true, weight: 0.2, confidence: "low" });
+
+    expect(hasCdpInputCoordinateLeak([first, { ...first, t: 20 }], [])).toBe(
+      false,
+    );
+    expect(
+      hasCdpInputCoordinateLeak(
+        [
+          first,
+          { ...second, isTrusted: false },
+          { ...second, isFullscreen: true },
+          { ...second, isFullscreen: undefined },
+          { ...second, pageX: undefined },
+          { ...second, pageY: undefined },
+          { ...second, screenX: undefined },
+          { ...second, screenY: undefined },
+          { ...second, screenX: 999 },
+          { ...second, screenY: 999 },
+        ],
+        [],
+      ),
+    ).toBe(false);
+
+    const keyboardClick: ClickSample = {
+      ...second,
+      detail: 0,
+    };
+    expect(hasCdpInputCoordinateLeak([first], [keyboardClick])).toBe(false);
+    expect(
+      hasCdpInputCoordinateLeak(
+        [first],
+        [{ ...second, detail: 1 }],
+      ),
+    ).toBe(true);
   });
 
   it("detects large cursor jumps even when elapsed time is above 20ms", () => {
@@ -528,6 +585,38 @@ describe("behavioral detector lifecycle", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("collects trusted page/screen coordinates for the CDP Input signal", () => {
+    const context = createCapturingTarget();
+    Object.assign(context, {
+      outerHeight: 1_000,
+      innerHeight: 900,
+      navigator: { userAgent: "Mozilla/5.0 Chrome/121.0.0.0" },
+    });
+    const detector = createBehavioralClientDetector({ context });
+    detector.start();
+
+    for (const position of [100, 200]) {
+      context.emit("mousemove", {
+        clientX: position,
+        clientY: position + 1,
+        pageX: position,
+        pageY: position + 1,
+        screenX: position,
+        screenY: position + 1,
+        movementX: 10,
+        movementY: 10,
+        isTrusted: true,
+      });
+    }
+
+    expect(
+      detector.getResult().signals.find(
+        ({ id }) => id === "cdp-input-coordinate-leak",
+      ),
+    ).toMatchObject({ triggered: true });
+    detector.stop();
   });
 
   it("does not register duplicate listeners when started twice", () => {

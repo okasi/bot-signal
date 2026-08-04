@@ -88,6 +88,7 @@ function buildResultContext(
     isDatacenterIp: context.isDatacenterIp,
     isAbuseListedIp: context.isAbuseListedIp,
     isIcloudPrivateRelay: context.isIcloudPrivateRelay,
+    crawlerVerificationStatus: context.crawlerVerificationStatus,
     datacenterProvider: context.datacenterProvider,
     icloudRelayCountry: context.icloudRelayCountry,
   };
@@ -98,6 +99,12 @@ function classifyServerAutomation(
   suspiciousTlsFingerprints: string[],
   suspiciousTlsFingerprintEntries: TlsFingerprintEntry[],
 ) {
+  const crawlerVerificationEvidence =
+    context.crawlerVerificationStatus === "verified"
+      ? "Trusted edge verified an automated crawler identity"
+      : context.crawlerVerificationStatus === "spoofed"
+        ? "Trusted edge conclusively rejected the claimed crawler identity"
+        : undefined;
   const uaFamily = getUserAgentFamily(context.userAgent);
   const tlsEntry = context.tlsFingerprint
     ? findTlsFingerprintEntry(
@@ -128,9 +135,10 @@ function classifyServerAutomation(
     return createAutomationAssessment(
       true,
       uaFamily as "curl" | "python" | "go" | "java",
-      "medium",
+      crawlerVerificationEvidence ? "high" : "medium",
       [
         `User-Agent claims ${uaFamily}`,
+        ...(crawlerVerificationEvidence ? [crawlerVerificationEvidence] : []),
         ...(tlsSupportsUa ? [`TLS fingerprint is compatible with ${uaFamily}`] : []),
       ],
     );
@@ -149,11 +157,21 @@ function classifyServerAutomation(
       "high",
       [
         `User-Agent claims ${botUaKind}`,
+        ...(crawlerVerificationEvidence ? [crawlerVerificationEvidence] : []),
         ...(tlsSupportsUa && uaFamily !== "unknown"
           ? [`TLS fingerprint is compatible with ${uaFamily}`]
           : []),
       ],
       [...alternatives],
+    );
+  }
+
+  if (crawlerVerificationEvidence) {
+    return createAutomationAssessment(
+      true,
+      "unknown",
+      "high",
+      [crawlerVerificationEvidence],
     );
   }
 

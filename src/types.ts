@@ -191,6 +191,10 @@ export interface InstantClientAsyncResult extends InstantClientResult {
   isHighEntropyUserAgentDataMismatch: boolean | null;
   /** Worker navigator values contradict the main realm; `null` when unavailable */
   isWorkerInconsistent: boolean | null;
+  /** Worker navigator exposes `webdriver === true`; `null` when unavailable */
+  isWebDriverInWorker?: boolean | null;
+  /** Worker WebGL identity contradicts the main realm; `null` when unavailable */
+  isWorkerWebGLInconsistent?: boolean | null;
   /** CDP serialized a diagnostic object inside a worker; `null` when unavailable */
   isCdpDetectedInWorker: boolean | null;
   /** Desktop Chromium enumerated no media devices at all; `null` when unavailable */
@@ -205,6 +209,8 @@ export type InstantAsyncChecks = Pick<
   | "isNotificationPermissionInconsistent"
   | "isHighEntropyUserAgentDataMismatch"
   | "isWorkerInconsistent"
+  | "isWebDriverInWorker"
+  | "isWorkerWebGLInconsistent"
   | "isCdpDetectedInWorker"
   | "isMissingMediaDevices"
 >;

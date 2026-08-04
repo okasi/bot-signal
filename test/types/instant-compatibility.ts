@@ -1,5 +1,9 @@
 import { buildInstantSignals } from "../../src/browser.js";
-import type { AutomationKind } from "../../src/browser.js";
+import type {
+  AutomationKind,
+  InstantAsyncChecks,
+  WorkerChecks,
+} from "../../src/browser.js";
 
 // Exact pre-2.0.4 input shape: newly added checks must remain optional so
 // existing typed callers continue to compile after a patch upgrade.
@@ -29,6 +33,24 @@ const legacyChecks = {
 };
 
 buildInstantSignals(legacyChecks, false);
+
+// Exact async/worker shapes from before worker WebGL comparison was added.
+const legacyAsyncChecks: InstantAsyncChecks = {
+  isShaderF16Supported: null,
+  isCdpDetected: null,
+  isNotificationPermissionInconsistent: null,
+  isHighEntropyUserAgentDataMismatch: null,
+  isWorkerInconsistent: null,
+  isCdpDetectedInWorker: null,
+  isMissingMediaDevices: null,
+};
+const legacyWorkerChecks: WorkerChecks = {
+  isWorkerInconsistent: null,
+  isCdpDetectedInWorker: null,
+};
+
+buildInstantSignals(legacyChecks, legacyAsyncChecks);
+void legacyWorkerChecks;
 
 function exhaustLegacyAutomationKind(kind: AutomationKind): string {
   switch (kind) {

@@ -35,6 +35,16 @@ describe("patchright async instant detection", () => {
       "undefined",
     );
     expect(typeof result.isWorkerInconsistent).not.toBe("undefined");
+    expect(
+      result.isWebDriverInWorker === null ||
+        typeof result.isWebDriverInWorker === "boolean",
+    ).toBe(true);
+    expect(result.isWebDriverInWorker).not.toBe(true);
+    expect(
+      result.isWorkerWebGLInconsistent === null ||
+        typeof result.isWorkerWebGLInconsistent === "boolean",
+    ).toBe(true);
+    expect(result.isWorkerWebGLInconsistent).not.toBe(true);
     expect(typeof result.isCdpDetectedInWorker).not.toBe("undefined");
     expect(typeof result.isLegitClient).toBe("boolean");
 

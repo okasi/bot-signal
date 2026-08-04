@@ -3,6 +3,7 @@ export {
   aggregateSuspicionScore,
   buildBehavioralSignals,
   createBehavioralClientDetector,
+  hasCdpInputCoordinateLeak,
   hasClickWithoutMouseMovement,
   hasLinearMouseMovement,
   hasLinearTapRhythm,

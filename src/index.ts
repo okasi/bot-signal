@@ -3,6 +3,7 @@ export {
   aggregateSuspicionScore,
   buildBehavioralSignals,
   createBehavioralClientDetector,
+  hasCdpInputCoordinateLeak,
   hasClickWithoutMouseMovement,
   hasLinearMouseMovement,
   hasLinearTapRhythm,
@@ -115,6 +116,7 @@ export type {
   TouchSample,
 } from "./behavioral/types.js";
 export type {
+  CrawlerVerificationStatus,
   EnrichedServerContext,
   IpGeoResult,
   IpListChecker,

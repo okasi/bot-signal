@@ -165,7 +165,8 @@ const withWebGpu = await isHumanAsync(window); // or detectInstantClientAsync
 
 ### Behavioral
 
-`bot-signal`'s behavioral mode observes mouse, scroll, and keyboard events. Score: `1 - Π(1 - weight)` across triggered signals.
+`bot-signal`'s behavioral mode observes mouse movement, clicks, touch gestures,
+scrolling, and keyboard events. Score: `1 - Π(1 - weight)` across triggered signals.
 
 ```ts
 const detector = createBehavioralClientDetector({
@@ -196,6 +197,8 @@ const result = await detectServerClientAsync({
   secFetchSite: req.headers["sec-fetch-site"],
   secFetchMode: req.headers["sec-fetch-mode"],
   secFetchDest: req.headers["sec-fetch-dest"],
+  // Set only from trusted edge verification, never a client header:
+  crawlerVerificationStatus: req.botIdentity?.status,
 });
 ```
 
@@ -289,13 +292,15 @@ applications can reuse those global names.
 | `isNotificationPermissionInconsistent` | 0.55 | Async — Notification and Permissions states contradict |
 | `isHighEntropyUserAgentDataMismatch` | 0.65 | Async — high-entropy UA-CH conflicts with the UA |
 | `isWorkerInconsistent` | 0.8 | Async — the worker realm names a different operating system than the page |
+| `isWebDriverInWorker` | 0.9 | Async — a non-standard worker `navigator.webdriver === true` exposure |
+| `isWorkerWebGLInconsistent` | 0.35 | Async — non-empty unmasked WebGL vendor/renderer values disagree between page and worker |
 | `isCdpDetectedInWorker` | 0.25 | Async — CDP serialized an `Error` in a worker (deduplicated with page CDP) |
 | `isMissingMediaDevices` | 0.3 | Async — desktop Chromium enumerated no audio or video devices |
 
 **Browser fingerprint protection is not automation.** Protection rewrites
 Navigator values per realm by design — Opera 133 reports 2 cores and a
 normalised locale to the page while its workers report the machine's real 10 —
-so the two cross-realm checks are deliberately split by how reachable each realm
+so the cross-realm checks are deliberately split by how reachable each realm
 is:
 
 - `isWorkerInconsistent` compares one thing: whether the two realms name a
@@ -304,6 +309,14 @@ is:
   not in a worker, and User-Agent reduction and per-site compatibility
   overrides change the browser version in the document only. Locale, raw
   strings, browser version, and `hardwareConcurrency` are all left out.
+- `isWebDriverInWorker` is FPScanner-inspired and fires only if a non-standard
+  worker property exposes the definitive boolean value `true`; WebDriver does
+  not normally define this property on `WorkerNavigator`. Missing worker
+  support or an absent worker property returns `null`.
+- `isWorkerWebGLInconsistent` compares the unmasked vendor and renderer only
+  when both realms expose complete values. Missing OffscreenCanvas, WebGL, or
+  debug-renderer data returns `null` and contributes no suspicion. It remains
+  a soft corroborating signal because privacy tooling can rewrite only the page.
 - `isIframeInconsistent` compares no Navigator values, because an
   `about:blank` frame is the realm every content script reaches — ad blockers,
   privacy tools, and the extensions Chromium forks ship built in all inject
@@ -334,6 +347,7 @@ diagnostic objects.
 | `click-without-mouse-movement` | 0.35 | high | Click with no mouse or touch activity in the prior 2s |
 | `linear-mouse-movement` | 0.25 | medium | Straight path, uniform speed |
 | `zero-mouse-movement-deltas` | 0.30 | medium | More than 50 mouse events all report zero `movementX`/`movementY` |
+| `cdp-input-coordinate-leak` | 0.20 | low | Two distinct trusted pointer positions have identical page/screen coordinates; a soft CDP hint because ordinary window/scroll geometry can collide |
 | `teleport-mouse` | 0.40 | high | Implausible cursor jumps between closely-spaced events |
 | `linear-touch-movement` | 0.25 | medium | Swipe path is straight with uniform speed |
 | `teleport-touch` | 0.40 | high | Contact point jumps implausibly mid-gesture |
@@ -365,6 +379,7 @@ the logic.
 |----|--------|------------|-------------|
 | `scripting-user-agent` | 0.75 | medium | UA claims curl/Python/Go/Java |
 | `bot-user-agent` | 0.90 | high | UA claims a conservative known bot, HTTP-client, or automation product token |
+| `crawler-identity-spoofed` | 0.95 | high | Trusted Web Bot Auth, FCrDNS/CIDR, or equivalent verification rejected a crawler claim |
 | `client-hints-mismatch` | 0.65 | high | Chromium UA version conflicts with `sec-ch-ua` |
 | `client-user-agent-mismatch` | 0.80 | high | HTTP UA conflicts with `navigator.userAgent` from a client beacon |
 | `client-language-mismatch` | 0.45 | medium | Accept-Language conflicts with Navigator languages |
@@ -379,6 +394,15 @@ the logic.
 | `datacenter-browser-mismatch` | 0.35 | medium | Datacenter IP + browser UA |
 | `abuse-listed-ip` | 0.60 | high | AbuseIPDB 30-day blocklist |
 | `icloud-private-relay` | 0.15 | low | iCloud Private Relay egress |
+
+`crawlerVerificationStatus` must come from infrastructure you trust, just like
+`tlsFingerprint`; never copy it from a client-supplied header. Only `spoofed`
+triggers `crawler-identity-spoofed`. `verified` does not whitelist a crawler—the
+separate `bot-user-agent` signal still reports that the client is a bot so the
+host application can apply its own verified-bot policy. Even without a
+recognized UA, `verified` sets `automation.isAutomated` while remaining
+score-neutral. Use `spoofed` only for a conclusive known-identity mismatch;
+ambiguous authentication errors must be `unverified`.
 
 **Bundled IP data:** `data/datacenter_ip_ranges.csv` (ipcat), `data/abuse_ip_db_30d_ips.csv` (AbuseIPDB), `data/icloud_private_relay_ip_ranges.csv` (Apple, IPv4 + IPv6).
 
@@ -400,28 +424,37 @@ once at boot to move that one-off parse cost out of the first request.
 
 ### Reference checker coverage
 
-The public checks from the referenced test pages were audited against the
-library. `bot-signal` implements reusable passive signals and cross-layer
+The referenced public checker pages and open-source detectors/tools were
+audited against the library. `bot-signal` implements reusable passive signals and cross-layer
 contradictions; it deliberately does not turn every fingerprint value or
 browser feature absence into bot evidence.
 
 | Checker | Coverage in `bot-signal` | Boundary |
 |---------|--------------------------|----------|
-| [Sannysoft Antibot](https://bot.sannysoft.com/) | UA/WebDriver/getter, Chrome object, permissions, plugins/MIME/languages, iframe realm and Chrome state, Selenium/PhantomJS/Sequentum globals and document attributes | Generic `window.phantom` is omitted because the Phantom wallet uses it; alert timing, broken-image pixels, battery, codecs, and detailed WebGL expectations are intrusive or high-noise |
+| [Sannysoft Antibot](https://bot.sannysoft.com/) | UA/WebDriver/getter, Chrome object, permissions, plugins/MIME/languages, iframe realm/WebDriver consistency, Selenium/PhantomJS/Sequentum globals and document attributes | Generic `window.phantom` is omitted because the Phantom wallet uses it; alert timing, broken-image pixels, battery, codecs, iframe Chrome state, and detailed WebGL expectations are intrusive or high-noise |
 | [Incolumitas Bot Detection](https://bot.incolumitas.com/) | Header-vs-JS UA/language, native getter and plugin integrity, worker consistency, RTT, behavior, IP/TLS/timezone/datacenter signals | Its server challenge classifiers and network latency/open-port tests require site-owned infrastructure |
 | [Rebrowser Bot Detector](https://bot-detector.rebrowser.net/) | CDP serialization, Playwright/Puppeteer globals, exposed bindings and init scripts, WebDriver getter, default viewport, automation-specific stack URLs | Treating any own Navigator property as automation, CSP bypass, main-world hooks, honeypot access, live stable-version comparison, and requiring Google Chrome branding/high-entropy data (which rejects legitimate unbranded Chromium) are intentionally omitted |
 | [Pixelscan Bot Check](https://pixelscan.net/bot-check) | WebDriver/CDP, Selenium/ChromeDriver, Electron/Phantom/Awesomium/CEF/FMiner/Geb/Phantomas-style artifacts, headless UA, native tampering, unusual environment combinations | Pixelscan's private “advanced” model is not published |
 | [Scrapfly Automation Detector](https://scrapfly.io/web-scraping-tools/automation-detector) | All stable passive categories: WebDriver, UA, plugins/MIME/languages, native functions/descriptors, Selenium/ChromeDriver/Phantom artifacts, permissions | `chrome.runtime` is intentionally not required: it is an extension API and is absent on ordinary pages |
-| [DeviceAndBrowserInfo](https://deviceandbrowserinfo.com/are_you_a_bot) | Main/iframe/worker WebDriver and value consistency, iframe `self.get` hook, automation globals, bot UA, WebGL availability/software GPU, WebGPU feature, hardware/default-screen, CDP, high-entropy UA-CH, canvas and behavior | Population-based GPU vendor/renderer, timing, and shader-backend expectations remain browser-version dependent; distinctive globals are checked once rather than re-polled every ~200ms |
+| [DeviceAndBrowserInfo](https://deviceandbrowserinfo.com/are_you_a_bot) | Main/iframe WebDriver consistency, worker WebDriver/OS/WebGL consistency, automation globals, bot UA, WebGL availability/software GPU, WebGPU feature, hardware/default-screen, CDP, high-entropy UA-CH, canvas and behavior | The iframe `self.get` hook is omitted because extensions can define it; population-based GPU, timing, and shader-backend expectations remain version-dependent; distinctive globals are checked once rather than re-polled every ~200ms |
 | [APIVoid Bot Detection](https://www.apivoid.com/tools/bot-detection-test/) | Screen/zero-window, scripting/headless/bot UA, Navigator identity/platform/touch consistency, WebDriver, hardware, plugins, permissions, WebGL availability/software GPU, canvas, automation properties | Cookie availability, WebRTC-vs-public-IP comparison, Web Audio, SpeechSynthesis, Bluetooth, font/media capabilities, and engine/version baselines are not scored as standalone bot signals |
 | [Fingerprint Web Scraping Prevention](https://demo.fingerprint.com/web-scraping) | Public BotD-style UA, runtime, document, plugin, permission, WebGL, window, and distinctive-property categories | The commercial Web Scraping Smart Signal is a proprietary server model and cannot be reproduced locally |
-| [InfoSimples Detect Headless](https://infosimples.github.io/detect-headless/) | UA/appVersion, WebDriver, Chrome object, permissions, plugin/MIME prototypes, languages, window size, RTT, CDP | Blocking `alert()` timing and broken-image probes are intrusive/obsolete and are not run |
+| [FingerprintJS BotD](https://github.com/fingerprintjs/BotD) | Its open-source UA, engine, runtime, document, permission, plugin, WebGL, and window detectors map to instant signals | Generic Node-style `emit`/`spawn` globals are omitted because ordinary applications can expose them |
+| [FPScanner](https://fpscanner.com/) | WebDriver/descriptors, Selenium/Playwright/CDP, screen/hardware, engine/platform/GPU contradictions, iframe WebDriver, worker WebDriver/OS, and the soft worker/page WebGL comparison | UTC timezone, high core counts, iframe platform strings, and other raw cross-realm differences are too common on legitimate privacy-protected or virtualized browsers |
+| [Brotector](https://ttlns.github.io/brotector/) | Playwright/ChromeDriver globals, CDP serialization, untrusted input, and a low-weight trusted CDP Input page/screen-coordinate hint | Empty high-entropy UA-CH can be caused by policy/privacy withholding; mobile touch-coordinate equality is noisy, while debugger stalls, popup crashes, PDF styling, and function hooks are intrusive |
+| [HMaker Selenium Detector](https://hmaker.github.io/selenium-detector/) | Named Selenium/ChromeDriver artifacts plus descriptor-only detection of renamed Array/Promise/Symbol aliases and the exact element-cache prototype | Renamed aliases are checked in the main realm only; active query-selector call-stack hooks and execute/async token challenges are not installed into application code |
+| [FCaptcha](https://webdecoy.com/product/fcaptcha-demo/) | Existing synthetic-event, movement-delta, teleport, scroll, typing, tap, and touch-gesture signals overlap with its passive behavior model | Key dwell/rollover, coalesced-pointer and delta coherence, micro-motion, touch force/radius, sensor entropy, paste/fill, form cadence, and proof-of-work need broader form-specific collection or challenge infrastructure |
+| [InfoSimples Detect Headless](https://infosimples.github.io/detect-headless/) | UA/appVersion, WebDriver, Chrome object, permissions, plugin/MIME prototypes, languages, window size, RTT, CDP, and zero mouse movement deltas | Blocking `alert()` timing and broken-image probes are intrusive/obsolete and are not run |
 | [Intoli Headless Chrome Test](https://intoli.com/blog/not-possible-to-block-chrome-headless/chrome-headless-test.html) | UA, WebDriver, Chrome object, permissions, plugins, languages | Covered by the instant and async result fields above |
 | [CreepJS Fingerprint Checker](https://creepjs.org/checker) | Relevant lie/tamper and cross-realm consistency categories map to native, canvas, UA/platform, WebGL/WebGPU, timezone, language, and worker signals | Its raw rendering/device/media/font values are fingerprint inputs, not bot detections |
 | [BrowserLeaks JavaScript](https://browserleaks.com/javascript) | Relevant Navigator/screen/language/timezone/CPU/plugin contradictions are covered | The page is a JavaScript capability/fingerprint viewer and does not publish a bot verdict |
 | [BrowserScan](https://www.browserscan.net/) | UA/OS/client-hint, webdriver, screen/touch/memory, canvas, WebGL availability/software GPU, WebGPU feature, timezone/language, IP/blocklist/TLS/JA3/JA4 categories | Detailed GPU “correctness” needs BrowserScan's private population and browser-version baselines |
 | [Scrapfly Browser Fingerprint](https://scrapfly.io/web-scraping-tools/browser-fingerprint) | Consistency signals cover screen, canvas, GPU availability, Navigator, UA-CH, MIME, permissions, timezone, and language | Server-profile population matching plus audio/fonts/codecs/DRM/voices are fingerprint inputs, not direct local automation evidence |
 | [BrowserAudit](https://browseraudit.com/) | No BrowserAudit security-conformance assertions are executed | BrowserAudit is a standards/security suite, not a bot detector; its 400+ assertions are out of scope for bot scoring |
+| [tls.peet.ws](https://tls.peet.ws/) / [fpcheck](https://github.com/North-web-dev/fpcheck) | Their JA3/JA4 portions map to caller-supplied fingerprints, family-labelled profiles, and UA-family mismatch | JA4H, Akamai HTTP/2 settings/order, and raw header-order profiles are not accepted or hardcoded because browser versions and intermediaries change them; callers can enforce trusted edge profiles separately |
+| [CrawlerDetect](https://crawlerdetect.io/) | Conservative bot/crawler UA tokens are detected in both browser and server layers | A broad self-declared-UA corpus is neither proof of automation nor verified crawler identity, so it is not imported wholesale |
+| [Cloudflare Web Bot Auth test](https://crawltest.com/cdn-cgi/web-bot-auth) | Cryptographic verification is performed at the edge; a successful trusted verdict can feed `crawlerVerificationStatus: "verified"` | This package does not verify HTTP Message Signatures locally; Cloudflare 401 conflates unknown keys with signature failure, so 400/401/non-200 responses must remain `unverified`, not `spoofed` |
+| [Google crawler verification](https://developers.google.com/crawling/docs/crawlers-fetchers/verify-google-requests) / [Bingbot verification](https://www.bing.com/webmasters/help/how-to-verify-bingbot-3905dc26) | A trusted Google/Bing FCrDNS result, or a Google published-IP-range result, can feed `crawlerVerificationStatus`; conclusive spoofing adds a high-confidence signal | DNS verification and Google range refresh belong in infrastructure with caching; lookup failures must remain `unverified`, and Bing ranges must not be hardcoded |
 
 Challenge-only tests belong in the host application because they require a
 nonce, CSP policy, instrumented main world, network endpoint, or historical

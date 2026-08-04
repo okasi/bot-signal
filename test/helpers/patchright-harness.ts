@@ -157,6 +157,8 @@ export async function runInstantDetectionAsync(
     isNotificationPermissionInconsistent: boolean | null;
     isHighEntropyUserAgentDataMismatch: boolean | null;
     isWorkerInconsistent: boolean | null;
+    isWebDriverInWorker: boolean | null;
+    isWorkerWebGLInconsistent: boolean | null;
     isCdpDetectedInWorker: boolean | null;
   }
 > {
@@ -180,6 +182,8 @@ export async function runMainWorldInstantDetectionAsync(
     isNotificationPermissionInconsistent: boolean | null;
     isHighEntropyUserAgentDataMismatch: boolean | null;
     isWorkerInconsistent: boolean | null;
+    isWebDriverInWorker: boolean | null;
+    isWorkerWebGLInconsistent: boolean | null;
     isCdpDetectedInWorker: boolean | null;
   }
 > {
@@ -233,6 +237,8 @@ export async function runMainWorldInstantDetectionAsync(
     isNotificationPermissionInconsistent: boolean | null;
     isHighEntropyUserAgentDataMismatch: boolean | null;
     isWorkerInconsistent: boolean | null;
+    isWebDriverInWorker: boolean | null;
+    isWorkerWebGLInconsistent: boolean | null;
     isCdpDetectedInWorker: boolean | null;
     error?: string;
   };
@@ -470,6 +476,8 @@ interface HarnessWindow extends Window {
         isNotificationPermissionInconsistent: boolean | null;
         isHighEntropyUserAgentDataMismatch: boolean | null;
         isWorkerInconsistent: boolean | null;
+        isWebDriverInWorker: boolean | null;
+        isWorkerWebGLInconsistent: boolean | null;
         isCdpDetectedInWorker: boolean | null;
       }
     >;

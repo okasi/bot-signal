@@ -80,8 +80,12 @@ export function isClientUserAgentMismatch(
   userAgent: string | undefined,
   clientUserAgent: string | undefined,
 ): boolean {
+  const normalizedUserAgent = userAgent?.trim();
+  const normalizedClientUserAgent = clientUserAgent?.trim();
   return Boolean(
-    userAgent && clientUserAgent && userAgent.trim() !== clientUserAgent.trim(),
+    normalizedUserAgent &&
+      normalizedClientUserAgent &&
+      normalizedUserAgent !== normalizedClientUserAgent,
   );
 }
 
@@ -153,13 +157,17 @@ function claimedPlatform(userAgent: string): string | undefined {
 }
 
 function normalizePlatform(platform: string): string | undefined {
-  const value = platform.replace(/^"|"$/g, "").toLowerCase();
-  if (/android/.test(value)) return "android";
-  if (/cros|chrome os/.test(value)) return "chrome os";
-  if (/win/.test(value)) return "windows";
-  if (/iphone|ipad|ipod|ios/.test(value)) return "ios";
-  if (/mac/.test(value)) return "macos";
-  if (/linux/.test(value)) return "linux";
+  const value = platform.trim().replace(/^"|"$/g, "").toLowerCase();
+  if (/^android(?:\b|$)/.test(value)) return "android";
+  if (/^(?:cros|chrome os)(?:\b|$)/.test(value)) return "chrome os";
+  if (/^(?:windows|win(?:16|32|64|ce)?)(?:\b|$)/.test(value)) {
+    return "windows";
+  }
+  if (/^(?:iphone|ipad|ipod|ios)(?:\b|$)/.test(value)) return "ios";
+  if (/^(?:mac(?:intel|ppc)?|macos|mac os)(?:\b|$)/.test(value)) {
+    return "macos";
+  }
+  if (/^linux(?:\b|$)/.test(value)) return "linux";
   return undefined;
 }
 
@@ -262,6 +270,13 @@ export function buildServerSignals(
       "User-Agent claims a known bot, HTTP, or automation client",
       isBotUserAgent(context.userAgent),
       0.9,
+      "high",
+    ),
+    createSignal(
+      "crawler-identity-spoofed",
+      "Trusted edge conclusively rejected the claimed crawler identity",
+      context.crawlerVerificationStatus === "spoofed",
+      0.95,
       "high",
     ),
     createSignal(

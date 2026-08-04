@@ -237,6 +237,80 @@ function hasSannysoftDocumentCache(context: ExtendedWindow): boolean {
   return false;
 }
 
+/** Renamed ChromeDriver constructor aliases left on the global object. */
+function hasRenamedChromeDriverGlobals(context: ExtendedWindow): boolean {
+  const constructors = [
+    ["Array", getPropertySafely(context, "Array")],
+    ["Promise", getPropertySafely(context, "Promise")],
+    ["Symbol", getPropertySafely(context, "Symbol")],
+  ] as const;
+  if (constructors.some(([, constructor]) => constructor === undefined)) {
+    return false;
+  }
+
+  const aliases = new Set<unknown>();
+  for (const key of Object.getOwnPropertyNames(context)) {
+    const descriptor = Object.getOwnPropertyDescriptor(context, key);
+    if (!descriptor || !("value" in descriptor)) {
+      continue;
+    }
+    for (const [canonicalName, constructor] of constructors) {
+      if (key !== canonicalName && descriptor.value === constructor) {
+        aliases.add(constructor);
+      }
+    }
+  }
+
+  return aliases.size === constructors.length;
+}
+
+/** Renamed Selenium element cache identified by its structural method triplet. */
+function hasRenamedChromeDriverDocumentCache(
+  context: ExtendedWindow,
+): boolean {
+  for (const key of Object.getOwnPropertyNames(context.document)) {
+    const descriptor = Object.getOwnPropertyDescriptor(context.document, key);
+    if (!descriptor || !("value" in descriptor)) {
+      continue;
+    }
+    const value = descriptor.value as unknown;
+    if (
+      (typeof value !== "object" || value === null) &&
+      typeof value !== "function"
+    ) {
+      continue;
+    }
+    try {
+      const cache = Object.getOwnPropertyDescriptor(value, "cache_");
+      const prototype = Object.getPrototypeOf(value) as object | null;
+      if (
+        !cache ||
+        !("value" in cache) ||
+        cache.value === undefined ||
+        !prototype
+      ) {
+        continue;
+      }
+      const actualNames = Object.getOwnPropertyNames(prototype).sort();
+      const expectedNames = [
+        "isNodeReachable_",
+        "retrieveItem",
+        "storeItem",
+      ];
+      if (
+        actualNames.length === expectedNames.length &&
+        actualNames.every((name, index) => name === expectedNames[index])
+      ) {
+        return true;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return false;
+}
+
 /** Chromium UA without the browser-provided `window.chrome` object */
 export function isMissingChromeObject(context: ExtendedWindow): boolean {
   if (!isChromiumBrowser(context)) {
@@ -249,31 +323,44 @@ export function isMissingChromeObject(context: ExtendedWindow): boolean {
   return getPropertySafely(context, "chrome") === undefined;
 }
 
+/** Whether a WebGL context can be created without letting a blocked API abort detection. */
+export function hasWebGlContext(context: ExtendedWindow): boolean {
+  try {
+    return Boolean(context.document.createElement("canvas").getContext("webgl"));
+  } catch {
+    return false;
+  }
+}
+
 /** Reads the unmasked WebGL vendor/renderer pair, or `null` when unavailable. */
-function readWebGlIdentity(
+export function readWebGlIdentity(
   context: ExtendedWindow,
 ): { vendor: string; renderer: string } | null {
-  const canvas = context.document.createElement("canvas");
-  const gl =
-    canvas.getContext("webgl") ??
-    canvas.getContext("experimental-webgl" as "webgl");
+  try {
+    const canvas = context.document.createElement("canvas");
+    const gl =
+      canvas.getContext("webgl") ??
+      canvas.getContext("experimental-webgl" as "webgl");
 
-  if (!gl) {
+    if (!gl) {
+      return null;
+    }
+
+    const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
+    if (!debugInfo) {
+      return null;
+    }
+
+    const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+    if (typeof renderer !== "string") {
+      return null;
+    }
+
+    const vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
+    return { vendor: typeof vendor === "string" ? vendor : "", renderer };
+  } catch {
     return null;
   }
-
-  const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
-  if (!debugInfo) {
-    return null;
-  }
-
-  const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
-  if (typeof renderer !== "string") {
-    return null;
-  }
-
-  const vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
-  return { vendor: typeof vendor === "string" ? vendor : "", renderer };
 }
 
 /** WebGL reports a software renderer such as SwiftShader or llvmpipe */
@@ -405,7 +492,9 @@ export function isChromeDriver(context: ExtendedWindow): boolean {
   return (
     hasMatchingKey(context, CHROMEDRIVER_KEY_PATTERNS) ||
     hasMatchingKey(context.document, CHROMEDRIVER_KEY_PATTERNS) ||
-    hasSannysoftDocumentCache(context)
+    hasSannysoftDocumentCache(context) ||
+    hasRenamedChromeDriverGlobals(context) ||
+    hasRenamedChromeDriverDocumentCache(context)
   );
 }
 
@@ -495,11 +584,18 @@ function findPropertyDescriptor(
   value: object,
   property: PropertyKey,
 ): PropertyDescriptor | undefined {
+  const visited = new Set<object>();
+  let depth = 0;
   for (
     let target: object | null = value;
-    target !== null;
+    target !== null && depth < 32;
     target = Object.getPrototypeOf(target) as object | null
   ) {
+    if (visited.has(target)) {
+      return undefined;
+    }
+    visited.add(target);
+    depth += 1;
     const descriptor = Object.getOwnPropertyDescriptor(target, property);
     if (descriptor) {
       return descriptor;

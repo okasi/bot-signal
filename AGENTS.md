@@ -35,10 +35,10 @@ src/
   userAgent.ts                # shared scripting/bot/HTTP-client/automation UA parser
   detectInstantClient.ts      # instant detection entry
   checks.ts                   # high-value browser checks
-  asyncChecks.ts              # CDP, permissions, high-entropy UA-CH, media devices, worker checks
+  asyncChecks.ts              # CDP, permissions, UA-CH, media devices, worker WebDriver/OS/WebGL checks
   webgpu.ts                   # shader-f16 + isChromiumBrowser
   behavioral/
-    analysis.ts               # mouse/touch-gesture/scroll/typing heuristics
+    analysis.ts               # mouse/touch/CDP-input/scroll/typing heuristics
     scoring.ts                # weighted score aggregation
     index.ts                  # detector (DOM event listener lifecycle)
     types.ts
@@ -46,7 +46,7 @@ src/
     geoip.ts                  # doc999tor-fast-geoip wrapper
     ipLists.ts                # parseIp + interval matching (IPv4/IPv6, binary search)
     enrich.ts                 # auto-fill context from clientIp
-    analysis.ts               # buildServerSignals
+    analysis.ts               # request contradictions + trusted crawler-verification verdict
     scoring.ts                # detectServerClient(Async)
     tls.ts                    # JA3 blocklist + UA mismatch
     timezone.ts               # TZ offset + accept-language checks

@@ -45,6 +45,7 @@ export {
   normalizeTlsFingerprint,
 } from "./tls.js";
 export type {
+  CrawlerVerificationStatus,
   ServerClientContext,
   ServerClientResult,
   ServerDetectorOptions,

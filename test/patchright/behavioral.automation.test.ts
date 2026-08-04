@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   openHarnessPage,
   runBehavioralScenario,
+  runMainWorldInstantDetectionAsync,
   triggeredSignalIds,
 } from "../helpers/patchright-harness.js";
 import { startTestServer, type TestServer } from "../helpers/test-server.js";
@@ -106,6 +107,91 @@ describe("patchright behavioral detection — automated interaction patterns", (
 
     expect(result.sampleCounts?.mouseMoves).toBeGreaterThan(0);
     expect(result.observationMs).toBeGreaterThan(0);
+
+    await context.close();
+  });
+
+  it("matches the CDP coordinate signal to trusted main-world event geometry", async () => {
+    const { context, page } = await openHarnessPage(browser, server.baseUrl);
+    await runMainWorldInstantDetectionAsync(page);
+
+    await page.evaluate(() => {
+      const runner = document.createElement("script");
+      runner.textContent = `(() => {
+        const samples = [];
+        window.__botSignalCoordinateSamples = samples;
+        window.addEventListener("mousemove", (event) => {
+          samples.push({
+            pageX: event.pageX,
+            pageY: event.pageY,
+            screenX: event.screenX,
+            screenY: event.screenY,
+            isTrusted: event.isTrusted,
+            isFullscreen: window.outerHeight - window.innerHeight <= 1,
+          });
+        }, { capture: true });
+        const detector = window.BotSignal.createBehavioralClientDetector({ context: window });
+        window.__botSignalCoordinateDetector = detector;
+        detector.start();
+      })();`;
+      document.head.append(runner);
+      runner.remove();
+    });
+
+    await page.mouse.move(100, 120);
+    await page.mouse.move(240, 260);
+
+    const attribute = "data-cdp-coordinate-result";
+    await page.evaluate((resultAttribute) => {
+      const runner = document.createElement("script");
+      runner.textContent = `(() => {
+        const detector = window.__botSignalCoordinateDetector;
+        const result = detector.getResult();
+        detector.stop();
+        const signal = result.signals.find(({ id }) => id === "cdp-input-coordinate-leak");
+        document.documentElement.setAttribute(
+          ${JSON.stringify(resultAttribute)},
+          JSON.stringify({
+            samples: window.__botSignalCoordinateSamples,
+            triggered: Boolean(signal && signal.triggered),
+          }),
+        );
+      })();`;
+      document.head.append(runner);
+      runner.remove();
+    }, attribute);
+
+    const serialized = await page.locator("html").getAttribute(attribute);
+    const payload = JSON.parse(serialized ?? "null") as {
+      samples: Array<{
+        pageX: number;
+        pageY: number;
+        screenX: number;
+        screenY: number;
+        isTrusted: boolean;
+        isFullscreen: boolean;
+      }>;
+      triggered: boolean;
+    };
+    expect(payload.samples.length).toBeGreaterThanOrEqual(2);
+    expect(payload.samples.every(({ isTrusted }) => isTrusted)).toBe(true);
+    expect(
+      new Set(
+        payload.samples.map((sample) => `${sample.pageX},${sample.pageY}`),
+      ).size,
+    ).toBeGreaterThanOrEqual(2);
+    const leakedPositions = new Set(
+      payload.samples
+        .filter(
+          (sample) =>
+            sample.isTrusted &&
+            !sample.isFullscreen &&
+            sample.pageX === sample.screenX &&
+            sample.pageY === sample.screenY,
+        )
+        .map((sample) => `${sample.pageX},${sample.pageY}`),
+    );
+    expect(payload.triggered).toBe(leakedPositions.size >= 2);
 
     await context.close();
   });

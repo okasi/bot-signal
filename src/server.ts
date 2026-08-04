@@ -40,6 +40,7 @@ export type {
   AutomationKind,
 } from "./automation.js";
 export type {
+  CrawlerVerificationStatus,
   EnrichedServerContext,
   IpGeoResult,
   IpListChecker,

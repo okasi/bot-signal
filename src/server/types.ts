@@ -3,6 +3,9 @@ import type { TlsFingerprintEntry } from "./tls.js";
 
 export type ConfidenceLevel = "high" | "medium" | "low";
 
+/** Result of crawler identity verification performed by trusted edge infrastructure. */
+export type CrawlerVerificationStatus = "verified" | "spoofed" | "unverified";
+
 export interface ServerSignal {
   id: string;
   description: string;
@@ -50,6 +53,13 @@ export interface ServerClientContext {
   isAbuseListedIp?: boolean;
   /** Whether the IP is in Apple's iCloud Private Relay egress ranges */
   isIcloudPrivateRelay?: boolean;
+  /**
+   * Trusted-edge verdict for Web Bot Auth, reverse/forward DNS, or published
+   * crawler IP-range verification. Use `spoofed` only when infrastructure can
+   * distinguish a claimed identity and conclusively reject it; ambiguous auth
+   * failures are `unverified`. Only `spoofed` adds suspicion.
+   */
+  crawlerVerificationStatus?: CrawlerVerificationStatus;
 }
 
 export interface ServerDetectorOptions {
@@ -102,6 +112,7 @@ export interface ServerClientResult {
     isDatacenterIp?: boolean;
     isAbuseListedIp?: boolean;
     isIcloudPrivateRelay?: boolean;
+    crawlerVerificationStatus?: CrawlerVerificationStatus;
     datacenterProvider?: string;
     icloudRelayCountry?: string;
   };

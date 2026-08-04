@@ -144,6 +144,9 @@ function cleanWorkerSnapshot(context: ExtendedWindow) {
     languages: Array.from(context.navigator.languages),
     platform: context.navigator.platform,
     hardwareConcurrency: context.navigator.hardwareConcurrency,
+    webdriver: false,
+    webGlVendor: "ANGLE (NVIDIA)",
+    webGlRenderer: "ANGLE (NVIDIA)",
     cdpDetected: false,
   };
 }
@@ -429,12 +432,116 @@ describe("expanded automation artifacts", () => {
       ).isChromeDriver,
     ).toBe(true);
   });
+
+  it("detects structurally renamed ChromeDriver constructor aliases", () => {
+    const context = createContext({ Array, Promise, Symbol } as Partial<ExtendedWindow>);
+    Object.assign(context, {
+      harmlessArrayAlias: context.Array,
+      harmlessPromiseAlias: context.Promise,
+    });
+    expect(detectInstantClient(context).isChromeDriver).toBe(false);
+
+    Object.defineProperty(context, "renamedSymbolAlias", {
+      value: context.Symbol,
+      configurable: true,
+    });
+    expect(detectInstantClient(context).isChromeDriver).toBe(true);
+
+    delete (context as unknown as Record<string, unknown>).renamedSymbolAlias;
+    Object.defineProperty(context, "accessorAlias", {
+      configurable: true,
+      get: () => context.Symbol,
+    });
+    expect(detectInstantClient(context).isChromeDriver).toBe(false);
+  });
+
+  it("detects a structurally renamed ChromeDriver document cache", () => {
+    const cachePrototype = Object.create(null) as Record<string, unknown>;
+    Object.assign(cachePrototype, {
+      storeItem() {},
+      retrieveItem() {},
+      isNodeReachable_() {},
+    });
+    const cache = Object.assign(Object.create(cachePrototype), { cache_: {} });
+    expect(
+      detectInstantClient(createContext({ document: { renamed: cache } }))
+        .isChromeDriver,
+    ).toBe(true);
+    expect(
+      detectInstantClient(
+        createContext({
+          document: {
+            ordinaryCache: {
+              cache_: {},
+              storeItem() {},
+              retrieveItem() {},
+              isNodeReachable_() {},
+            },
+          },
+        }),
+      ).isChromeDriver,
+    ).toBe(false);
+
+    const getterCache = Object.create({
+      storeItem() {},
+      retrieveItem() {},
+      isNodeReachable_() {},
+    });
+    Object.defineProperty(getterCache, "cache_", {
+      get() {
+        throw new Error("must not execute");
+      },
+    });
+    expect(
+      detectInstantClient(createContext({ document: { getterCache } }))
+        .isChromeDriver,
+    ).toBe(false);
+
+    const extraPrototype = Object.create(null) as Record<string, unknown>;
+    Object.assign(extraPrototype, {
+      storeItem() {},
+      retrieveItem() {},
+      isNodeReachable_() {},
+      extra() {},
+    });
+    const inherited = Object.assign(Object.create(extraPrototype), { cache_: {} });
+    expect(
+      detectInstantClient(createContext({ document: { inherited } }))
+        .isChromeDriver,
+    ).toBe(false);
+
+    const hostile = new Proxy(
+      {},
+      {
+        getOwnPropertyDescriptor() {
+          throw new Error("blocked descriptor");
+        },
+      },
+    );
+    expect(
+      detectInstantClient(createContext({ document: { hostile } }))
+        .isChromeDriver,
+    ).toBe(false);
+
+  });
 });
 
 describe("native and identity consistency", () => {
   it("accepts native core functions and no Navigator getter descriptors", () => {
     expect(isNativeFunctionTampered(createContext())).toBe(false);
     expect(isNativeFunctionTampered(createContext({ Function: undefined }))).toBe(false);
+
+    let cyclic!: object;
+    cyclic = new Proxy({}, { getPrototypeOf: () => cyclic });
+    const cyclicContext = createContext();
+    cyclicContext.navigator = cyclic as ExtendedNavigator;
+    expect(isNativeFunctionTampered(cyclicContext)).toBe(false);
+
+    const endless = (): object =>
+      new Proxy({}, { getPrototypeOf: () => endless() });
+    const endlessContext = createContext();
+    endlessContext.navigator = endless() as ExtendedNavigator;
+    expect(isNativeFunctionTampered(endlessContext)).toBe(false);
   });
 
   it("detects replaced Function methods and catches deceptive toString failures", () => {
@@ -881,6 +988,19 @@ describe("plugin, iframe, stack, and soft consistency checks", () => {
     ).toBe(true);
   });
 
+  it("treats throwing canvas access as unavailable WebGL", () => {
+    const context = createContext({
+      document: {
+        createElement() {
+          throw new Error("blocked");
+        },
+      } as unknown as Document,
+    });
+    expect(() => detectInstantClient(context)).not.toThrow();
+    expect(detectInstantClient(context).isWebGLSupported).toBe(false);
+    expect(isSoftwareRenderer(context)).toBe(false);
+  });
+
   it("flags an empty languages list even when language is also empty", () => {
     expect(
       isLanguageInconsistent(
@@ -1062,6 +1182,12 @@ describe("async realm and browser checks", () => {
         }),
       ),
     ).resolves.toBeNull();
+
+    const noOpContextTimer = createContext({
+      console: { debug: vi.fn() } as unknown as Console,
+    });
+    noOpContextTimer.setTimeout = (() => 1) as typeof setTimeout;
+    await expect(checkCdpRuntime(noOpContextTimer)).resolves.toBe(false);
   });
 
   it("keeps CDP-only evidence below the default blocking threshold", () => {
@@ -1087,6 +1213,34 @@ describe("async realm and browser checks", () => {
         isCdpDetectedInWorker: true,
       }).find(({ id }) => id === "isCdpDetectedInWorker"),
     ).toMatchObject({ triggered: true, weight: 0.25 });
+  });
+
+  it("registers worker WebDriver and WebGL signals with their scoring metadata", () => {
+    const checks = detectInstantClient(createContext()) as Parameters<
+      typeof buildInstantSignals
+    >[0];
+    const signals = buildInstantSignals(checks, {
+      isWebDriverInWorker: true,
+      isWorkerWebGLInconsistent: true,
+    });
+    const workerWebDriver = signals.find(
+      ({ id }) => id === "isWebDriverInWorker",
+    );
+    const workerWebGl = signals.find(
+      ({ id }) => id === "isWorkerWebGLInconsistent",
+    );
+
+    expect(workerWebDriver).toMatchObject({
+      triggered: true,
+      weight: 0.9,
+      confidence: "high",
+    });
+    expect(workerWebGl).toMatchObject({
+      triggered: true,
+      weight: 0.35,
+      confidence: "medium",
+    });
+    expect(aggregateInstantSuspicionScore([workerWebGl!])).toBeCloseTo(0.35);
   });
 
   it("compares Notification and Permissions states", async () => {
@@ -1171,7 +1325,9 @@ describe("async realm and browser checks", () => {
       ),
     ).resolves.toBe(false);
     await expect(
-      checkHighEntropyUserAgentData(withHighEntropy(CHROME_UA, { mobile: true })),
+      checkHighEntropyUserAgentData(
+        withHighEntropy(CHROME_UA, { mobile: true, platform: "Windows" }),
+      ),
     ).resolves.toBe(true);
     await expect(
       checkHighEntropyUserAgentData(withHighEntropy(CHROME_UA, {}, true)),
@@ -1199,11 +1355,18 @@ describe("async realm and browser checks", () => {
   it("returns null when workers or blob URLs are unavailable", async () => {
     await expect(checkWorkerConsistency(createContext())).resolves.toEqual({
       isWorkerInconsistent: null,
+      isWebDriverInWorker: null,
+      isWorkerWebGLInconsistent: null,
       isCdpDetectedInWorker: null,
     });
     await expect(
       checkWorkerConsistency(createContext({ Worker: class {} as unknown as typeof Worker })),
-    ).resolves.toEqual({ isWorkerInconsistent: null, isCdpDetectedInWorker: null });
+    ).resolves.toEqual({
+      isWorkerInconsistent: null,
+      isWebDriverInWorker: null,
+      isWorkerWebGLInconsistent: null,
+      isCdpDetectedInWorker: null,
+    });
     await expect(
       checkWorkerConsistency(
         createContext({
@@ -1212,7 +1375,44 @@ describe("async realm and browser checks", () => {
           URL: {} as typeof URL,
         }),
       ),
-    ).resolves.toEqual({ isWorkerInconsistent: null, isCdpDetectedInWorker: null });
+    ).resolves.toEqual({
+      isWorkerInconsistent: null,
+      isWebDriverInWorker: null,
+      isWorkerWebGLInconsistent: null,
+      isCdpDetectedInWorker: null,
+    });
+
+    for (const property of ["Worker", "Blob", "URL"] as const) {
+      const hostile = createContext();
+      Object.defineProperty(hostile, property, {
+        configurable: true,
+        get() {
+          throw new Error(`blocked ${property}`);
+        },
+      });
+      await expect(checkWorkerConsistency(hostile)).resolves.toEqual({
+        isWorkerInconsistent: null,
+        isWebDriverInWorker: null,
+        isWorkerWebGLInconsistent: null,
+        isCdpDetectedInWorker: null,
+      });
+    }
+
+    const hostileCreateObjectUrl = createWorkerContext().context;
+    hostileCreateObjectUrl.URL = new Proxy(hostileCreateObjectUrl.URL!, {
+      get(target, property, receiver) {
+        if (property === "createObjectURL") {
+          throw new Error("blocked createObjectURL");
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    await expect(checkWorkerConsistency(hostileCreateObjectUrl)).resolves.toEqual({
+      isWorkerInconsistent: null,
+      isWebDriverInWorker: null,
+      isWorkerWebGLInconsistent: null,
+      isCdpDetectedInWorker: null,
+    });
   });
 
   it("returns null when worker construction fails", async () => {
@@ -1225,6 +1425,8 @@ describe("async realm and browser checks", () => {
     } as unknown as typeof Worker;
     await expect(checkWorkerConsistency(context)).resolves.toEqual({
       isWorkerInconsistent: null,
+      isWebDriverInWorker: null,
+      isWorkerWebGLInconsistent: null,
       isCdpDetectedInWorker: null,
     });
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:worker");
@@ -1239,6 +1441,8 @@ describe("async realm and browser checks", () => {
     } as unknown as typeof Blob;
     await expect(checkWorkerConsistency(context)).resolves.toEqual({
       isWorkerInconsistent: null,
+      isWebDriverInWorker: null,
+      isWorkerWebGLInconsistent: null,
       isCdpDetectedInWorker: null,
     });
   });
@@ -1253,10 +1457,199 @@ describe("async realm and browser checks", () => {
 
     await expect(resultPromise).resolves.toEqual({
       isWorkerInconsistent: false,
+      isWebDriverInWorker: false,
+      isWorkerWebGLInconsistent: false,
       isCdpDetectedInWorker: true,
     });
     expect(worker.terminate).toHaveBeenCalledOnce();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:worker");
+  });
+
+  it("detects a worker-only webdriver leak", async () => {
+    const { context, WorkerMock } = createWorkerContext();
+    const resultPromise = checkWorkerConsistency(context);
+    WorkerMock.instances.at(-1)!.onmessage?.({
+      data: { ...cleanWorkerSnapshot(context), webdriver: true },
+    } as MessageEvent);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      isWebDriverInWorker: true,
+    });
+  });
+
+  it("attributes a worker-only webdriver leak as browser automation", async () => {
+    const { context, WorkerMock } = createWorkerContext();
+    const resultPromise = detectInstantClientAsync(context);
+    WorkerMock.instances.at(-1)!.onmessage?.({
+      data: { ...cleanWorkerSnapshot(context), webdriver: true },
+    } as MessageEvent);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      isWebDriver: false,
+      isWebDriverInWorker: true,
+      isLegitClient: false,
+      automation: {
+        isAutomated: true,
+        kind: "browser-automation",
+        confidence: "high",
+        evidence: expect.arrayContaining([
+          "Worker navigator exposes webdriver",
+        ]),
+      },
+    });
+  });
+
+  it("settles aggregate async detection when the caller context timer is a no-op", async () => {
+    const { context, WorkerMock } = createWorkerContext();
+    context.setTimeout = (() => 1) as typeof setTimeout;
+    context.console = { debug: vi.fn() } as unknown as Console;
+    const resultPromise = detectInstantClientAsync(context);
+    WorkerMock.instances.at(-1)!.onmessage?.({
+      data: cleanWorkerSnapshot(context),
+    } as MessageEvent);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      isCdpDetected: false,
+      isWorkerInconsistent: false,
+      isWebDriverInWorker: false,
+    });
+  });
+
+  it("treats missing worker webdriver as unavailable", async () => {
+    const { context, WorkerMock } = createWorkerContext();
+    const resultPromise = checkWorkerConsistency(context);
+    const { webdriver: _webdriver, ...snapshot } = cleanWorkerSnapshot(context);
+    WorkerMock.instances.at(-1)!.onmessage?.({ data: snapshot } as MessageEvent);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      isWebDriverInWorker: null,
+    });
+  });
+
+  it("always resolves when worker cleanup hooks throw", async () => {
+    const { context, WorkerMock } = createWorkerContext();
+    const workerPromise = checkWorkerConsistency(context);
+    const worker = WorkerMock.instances.at(-1)!;
+    const onmessage = worker.onmessage;
+    Object.defineProperties(worker, {
+      onmessage: {
+        configurable: true,
+        set() {
+          throw new Error("blocked message cleanup");
+        },
+      },
+      onerror: {
+        configurable: true,
+        set() {
+          throw new Error("blocked error cleanup");
+        },
+      },
+    });
+    worker.terminate.mockImplementation(() => {
+      throw new Error("blocked terminate");
+    });
+    (context.URL?.revokeObjectURL as ReturnType<typeof vi.fn>)
+      .mockImplementation(() => {
+        throw new Error("blocked revoke");
+      });
+    onmessage?.({
+      data: cleanWorkerSnapshot(context),
+    } as MessageEvent);
+    onmessage?.({ data: cleanWorkerSnapshot(context) } as MessageEvent);
+
+    await expect(workerPromise).resolves.toMatchObject({
+      isWorkerInconsistent: false,
+    });
+
+    const failed = createWorkerContext();
+    (failed.context.URL?.revokeObjectURL as ReturnType<typeof vi.fn>)
+      .mockImplementation(() => {
+        throw new Error("blocked revoke");
+      });
+    failed.context.Worker = class {
+      constructor() {
+        throw new Error("blocked worker");
+      }
+    } as unknown as typeof Worker;
+    await expect(checkWorkerConsistency(failed.context)).resolves.toEqual({
+      isWorkerInconsistent: null,
+      isWebDriverInWorker: null,
+      isWorkerWebGLInconsistent: null,
+      isCdpDetectedInWorker: null,
+    });
+  });
+
+  it("fails open for invalid worker messages and setup hooks", async () => {
+    const invalid = createWorkerContext();
+    const invalidPromise = checkWorkerConsistency(invalid.context);
+    invalid.WorkerMock.instances.at(-1)!.onmessage?.({
+      data: null,
+    } as MessageEvent);
+    await expect(invalidPromise).resolves.toEqual({
+      isWorkerInconsistent: null,
+      isWebDriverInWorker: null,
+      isWorkerWebGLInconsistent: null,
+      isCdpDetectedInWorker: null,
+    });
+
+    const invalidPrimitive = createWorkerContext();
+    const invalidPrimitivePromise = checkWorkerConsistency(
+      invalidPrimitive.context,
+    );
+    invalidPrimitive.WorkerMock.instances.at(-1)!.onmessage?.({
+      data: 42,
+    } as MessageEvent);
+    await expect(invalidPrimitivePromise).resolves.toEqual({
+      isWorkerInconsistent: null,
+      isWebDriverInWorker: null,
+      isWorkerWebGLInconsistent: null,
+      isCdpDetectedInWorker: null,
+    });
+
+    const throwingSnapshot = createWorkerContext();
+    const throwingSnapshotPromise = checkWorkerConsistency(
+      throwingSnapshot.context,
+    );
+    const hostileSnapshot = new Proxy(cleanWorkerSnapshot(throwingSnapshot.context), {
+      get() {
+        throw new Error("blocked snapshot");
+      },
+    });
+    throwingSnapshot.WorkerMock.instances.at(-1)!.onmessage?.({
+      data: hostileSnapshot,
+    } as MessageEvent);
+    await expect(throwingSnapshotPromise).resolves.toEqual({
+      isWorkerInconsistent: null,
+      isWebDriverInWorker: null,
+      isWorkerWebGLInconsistent: null,
+      isCdpDetectedInWorker: null,
+    });
+
+    const noOpContextTimer = createWorkerContext();
+    noOpContextTimer.context.setTimeout = (() => 1) as typeof setTimeout;
+    await expect(checkWorkerConsistency(noOpContextTimer.context)).resolves.toEqual({
+      isWorkerInconsistent: null,
+      isWebDriverInWorker: null,
+      isWorkerWebGLInconsistent: null,
+      isCdpDetectedInWorker: null,
+    });
+
+    const throwingHandler = createWorkerContext();
+    throwingHandler.context.Worker = class {
+      set onmessage(_value: unknown) {
+        throw new Error("blocked handler");
+      }
+      set onerror(_value: unknown) {
+        throw new Error("blocked handler");
+      }
+      terminate() {}
+    } as unknown as typeof Worker;
+    await expect(checkWorkerConsistency(throwingHandler.context)).resolves.toEqual({
+      isWorkerInconsistent: null,
+      isWebDriverInWorker: null,
+      isWorkerWebGLInconsistent: null,
+      isCdpDetectedInWorker: null,
+    });
   });
 
   it("does not report worker CDP outside Chromium", async () => {
@@ -1270,6 +1663,39 @@ describe("async realm and browser checks", () => {
     await expect(resultPromise).resolves.toMatchObject({
       isWorkerInconsistent: false,
       isCdpDetectedInWorker: null,
+    });
+  });
+
+  it.each([
+    { webGlVendor: "Different vendor" },
+    { webGlRenderer: "Different renderer" },
+  ])("detects worker WebGL identity mismatch %#", async (override) => {
+    const { context, WorkerMock } = createWorkerContext();
+    const resultPromise = checkWorkerConsistency(context);
+    WorkerMock.instances.at(-1)!.onmessage?.({
+      data: { ...cleanWorkerSnapshot(context), ...override },
+    } as MessageEvent);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      isWorkerInconsistent: false,
+      isWorkerWebGLInconsistent: true,
+    });
+  });
+
+  it.each([
+    { webGlVendor: undefined },
+    { webGlVendor: "" },
+    { webGlRenderer: undefined },
+    { webGlRenderer: "" },
+  ])("does not score an incomplete worker WebGL identity %#", async (override) => {
+    const { context, WorkerMock } = createWorkerContext();
+    const resultPromise = checkWorkerConsistency(context);
+    WorkerMock.instances.at(-1)!.onmessage?.({
+      data: { ...cleanWorkerSnapshot(context), ...override },
+    } as MessageEvent);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      isWorkerWebGLInconsistent: null,
     });
   });
 
@@ -1378,6 +1804,8 @@ describe("async realm and browser checks", () => {
     } as unknown as MessageEvent);
     await expect(resultPromise).resolves.toEqual({
       isWorkerInconsistent: true,
+      isWebDriverInWorker: false,
+      isWorkerWebGLInconsistent: false,
       isCdpDetectedInWorker: null,
     });
   });
@@ -1409,21 +1837,18 @@ describe("async realm and browser checks", () => {
     failed.WorkerMock.instances.at(-1)!.onerror?.();
     await expect(failedPromise).resolves.toEqual({
       isWorkerInconsistent: null,
+      isWebDriverInWorker: null,
+      isWorkerWebGLInconsistent: null,
       isCdpDetectedInWorker: null,
     });
 
-    vi.useFakeTimers();
-    try {
-      const timedOut = createWorkerContext();
-      const timedOutPromise = checkWorkerConsistency(timedOut.context);
-      await vi.advanceTimersByTimeAsync(500);
-      await expect(timedOutPromise).resolves.toEqual({
-        isWorkerInconsistent: null,
-        isCdpDetectedInWorker: null,
-      });
-    } finally {
-      vi.useRealTimers();
-    }
+    const timedOut = createWorkerContext();
+    await expect(checkWorkerConsistency(timedOut.context)).resolves.toEqual({
+      isWorkerInconsistent: null,
+      isWebDriverInWorker: null,
+      isWorkerWebGLInconsistent: null,
+      isCdpDetectedInWorker: null,
+    });
   });
 
   it("scores every async contradiction through the result", async () => {

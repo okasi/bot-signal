@@ -1,20 +1,40 @@
-import { hasRealmPersonaMismatch } from "./checks.js";
+import { hasRealmPersonaMismatch, readWebGlIdentity } from "./checks.js";
 import type { ExtendedWindow } from "./types.js";
 import { isChromiumBrowser } from "./webgpu.js";
 
+// Capture the detector realm's timers once: a caller-supplied context can
+// replace its timer methods with no-ops, which must not strand async detection.
+const scheduleDetectorTask = globalThis.setTimeout.bind(globalThis);
+const cancelDetectorTask = globalThis.clearTimeout.bind(globalThis);
+
+function bestEffort(action: () => void): void {
+  try {
+    action();
+  } catch {}
+}
+
 export interface WorkerChecks {
   isWorkerInconsistent: boolean | null;
+  /** Added after the original public shape; optional for producer compatibility. */
+  isWebDriverInWorker?: boolean | null;
+  /** Added after the original public shape; optional for producer compatibility. */
+  isWorkerWebGLInconsistent?: boolean | null;
   isCdpDetectedInWorker: boolean | null;
 }
 
 interface WorkerNavigatorSnapshot {
   userAgent: string;
   platform: string;
+  webdriver?: unknown;
+  webGlVendor?: unknown;
+  webGlRenderer?: unknown;
   cdpDetected: boolean;
 }
 
 const EMPTY_WORKER_CHECKS: WorkerChecks = {
   isWorkerInconsistent: null,
+  isWebDriverInWorker: null,
+  isWorkerWebGLInconsistent: null,
   isCdpDetectedInWorker: null,
 };
 
@@ -28,10 +48,28 @@ const WORKER_SOURCE = `
     },
   });
   console.debug(error);
+  let webGlVendor = null;
+  let webGlRenderer = null;
+  try {
+    if (typeof OffscreenCanvas === "function") {
+      const canvas = new OffscreenCanvas(1, 1);
+      const gl = canvas.getContext("webgl");
+      const debugInfo = gl && gl.getExtension("WEBGL_debug_renderer_info");
+      if (gl && debugInfo) {
+        const vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
+        const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+        webGlVendor = typeof vendor === "string" ? vendor : null;
+        webGlRenderer = typeof renderer === "string" ? renderer : null;
+      }
+    }
+  } catch {}
   setTimeout(() => {
     self.postMessage({
       userAgent: navigator.userAgent,
       platform: navigator.platform,
+      webdriver: navigator.webdriver,
+      webGlVendor,
+      webGlRenderer,
       cdpDetected,
     });
   }, 0);
@@ -80,7 +118,7 @@ export async function checkCdpRuntime(
   try {
     context.console.debug(error);
     await new Promise<void>((resolve) => {
-      context.setTimeout(resolve, 0);
+      scheduleDetectorTask(resolve, 0);
     });
     return accessed;
   } catch {
@@ -198,58 +236,133 @@ function compareWorkerSnapshot(
   return hasRealmPersonaMismatch(context.navigator, snapshot);
 }
 
+/** Compares WebGL only when both realms expose complete unmasked identities. */
+function compareWorkerWebGl(
+  context: ExtendedWindow,
+  snapshot: WorkerNavigatorSnapshot,
+): boolean | null {
+  const main = readWebGlIdentity(context);
+  if (
+    !main?.vendor ||
+    !main.renderer ||
+    typeof snapshot.webGlVendor !== "string" ||
+    !snapshot.webGlVendor ||
+    typeof snapshot.webGlRenderer !== "string" ||
+    !snapshot.webGlRenderer
+  ) {
+    return null;
+  }
+
+  return (
+    snapshot.webGlVendor !== main.vendor ||
+    snapshot.webGlRenderer !== main.renderer
+  );
+}
+
 /** Compares Navigator values and the CDP side effect in a dedicated worker. */
 export async function checkWorkerConsistency(
   context: ExtendedWindow,
 ): Promise<WorkerChecks> {
-  if (!context.Worker || !context.Blob || !context.URL?.createObjectURL) {
+  let workerConstructor: typeof Worker | undefined;
+  let blobConstructor: typeof Blob | undefined;
+  let urlConstructor: typeof URL | undefined;
+  let createObjectUrl: typeof URL.createObjectURL | undefined;
+  let revokeObjectUrl: typeof URL.revokeObjectURL | undefined;
+  try {
+    workerConstructor = context.Worker;
+    blobConstructor = context.Blob;
+    urlConstructor = context.URL;
+    createObjectUrl = urlConstructor?.createObjectURL;
+    revokeObjectUrl = urlConstructor?.revokeObjectURL;
+  } catch {
+    return EMPTY_WORKER_CHECKS;
+  }
+  if (
+    !workerConstructor ||
+    !blobConstructor ||
+    !urlConstructor ||
+    typeof createObjectUrl !== "function"
+  ) {
     return EMPTY_WORKER_CHECKS;
   }
 
-  const urlConstructor = context.URL;
   let objectUrl: string;
   try {
-    const blob = new context.Blob([WORKER_SOURCE], {
+    const blob = new blobConstructor([WORKER_SOURCE], {
       type: "text/javascript",
     });
-    objectUrl = urlConstructor.createObjectURL(blob);
+    objectUrl = createObjectUrl.call(urlConstructor, blob);
   } catch {
     return EMPTY_WORKER_CHECKS;
   }
 
   let worker: Worker;
   try {
-    worker = new context.Worker(objectUrl);
+    worker = new workerConstructor(objectUrl);
   } catch {
-    urlConstructor.revokeObjectURL(objectUrl);
+    bestEffort(() => {
+      revokeObjectUrl?.call(urlConstructor, objectUrl);
+    });
     return EMPTY_WORKER_CHECKS;
   }
 
   return new Promise((resolve) => {
+    let settled = false;
+    let deadline: ReturnType<typeof scheduleDetectorTask> | undefined;
     const finish = (result: WorkerChecks) => {
-      context.clearTimeout(timeout);
-      worker.onmessage = null;
-      worker.onerror = null;
-      worker.terminate();
-      urlConstructor.revokeObjectURL(objectUrl);
+      if (settled) {
+        return;
+      }
+      settled = true;
+      bestEffort(() => cancelDetectorTask(deadline));
+      bestEffort(() => {
+        worker.onmessage = null;
+      });
+      bestEffort(() => {
+        worker.onerror = null;
+      });
+      bestEffort(() => {
+        worker.terminate();
+      });
+      bestEffort(() => {
+        revokeObjectUrl?.call(urlConstructor, objectUrl);
+      });
       resolve(result);
     };
-    const timeout = context.setTimeout(
-      () => finish(EMPTY_WORKER_CHECKS),
-      500,
-    );
-
-    worker.onmessage = (event: MessageEvent<WorkerNavigatorSnapshot>) => {
-      const snapshot = event.data;
-      finish({
-        isWorkerInconsistent: compareWorkerSnapshot(context, snapshot),
-        isCdpDetectedInWorker:
-          isChromiumBrowser(context) &&
-          typeof snapshot.cdpDetected === "boolean"
-            ? snapshot.cdpDetected
-            : null,
-      });
-    };
-    worker.onerror = () => finish(EMPTY_WORKER_CHECKS);
+    try {
+      deadline = scheduleDetectorTask(
+        () => finish(EMPTY_WORKER_CHECKS),
+        500,
+      );
+      worker.onmessage = (event: MessageEvent<WorkerNavigatorSnapshot>) => {
+        try {
+          const snapshot = event.data;
+          if (!snapshot || typeof snapshot !== "object") {
+            finish(EMPTY_WORKER_CHECKS);
+            return;
+          }
+          finish({
+            isWorkerInconsistent: compareWorkerSnapshot(context, snapshot),
+            isWebDriverInWorker:
+              snapshot.webdriver === true
+                ? true
+                : snapshot.webdriver === false
+                  ? false
+                  : null,
+            isWorkerWebGLInconsistent: compareWorkerWebGl(context, snapshot),
+            isCdpDetectedInWorker:
+              isChromiumBrowser(context) &&
+              typeof snapshot.cdpDetected === "boolean"
+                ? snapshot.cdpDetected
+                : null,
+          });
+        } catch {
+          finish(EMPTY_WORKER_CHECKS);
+        }
+      };
+      worker.onerror = () => finish(EMPTY_WORKER_CHECKS);
+    } catch {
+      finish(EMPTY_WORKER_CHECKS);
+    }
   });
 }

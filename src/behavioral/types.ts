@@ -27,6 +27,13 @@ export interface MouseSample {
   movementX?: number;
   /** Browser-reported delta from the previous mouse event, when collected. */
   movementY?: number;
+  /** Page/screen coordinates used to detect a Chromium CDP Input leak. */
+  pageX?: number;
+  pageY?: number;
+  screenX?: number;
+  screenY?: number;
+  /** Whether browser chrome was hidden when this event was collected. */
+  isFullscreen?: boolean;
   t: number;
   isTrusted: boolean;
 }
@@ -51,6 +58,13 @@ export interface ClickSample {
   isTrusted: boolean;
   /** `MouseEvent.detail` — `0` for keyboard-activated clicks (Enter/Space on a control) */
   detail?: number;
+  /** Page/screen coordinates used to detect a Chromium CDP Input leak. */
+  pageX?: number;
+  pageY?: number;
+  screenX?: number;
+  screenY?: number;
+  /** Whether browser chrome was hidden when this event was collected. */
+  isFullscreen?: boolean;
 }
 
 export interface TouchSample {

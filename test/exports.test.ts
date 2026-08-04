@@ -16,6 +16,7 @@ describe("public entry points", () => {
       resolveInstantConfidence: expect.any(Function),
       createBehavioralClientDetector: expect.any(Function),
       analyzeBehavioralSamples: expect.any(Function),
+      hasCdpInputCoordinateLeak: expect.any(Function),
       isSoftwareRenderer: expect.any(Function),
     });
     expect("detectServerClientAsync" in browserApi).toBe(false);
@@ -44,6 +45,7 @@ describe("public entry points", () => {
       detectInstantClient: expect.any(Function),
       isHuman: expect.any(Function),
       createBehavioralClientDetector: expect.any(Function),
+      hasCdpInputCoordinateLeak: expect.any(Function),
       detectServerClientAsync: expect.any(Function),
       getIpListChecker: expect.any(Function),
     });

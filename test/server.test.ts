@@ -585,7 +585,10 @@ describe("request fingerprint helpers", () => {
 
   it("compares HTTP and browser-reported User-Agents", () => {
     expect(isClientUserAgentMismatch(undefined, CHROME_UA)).toBe(false);
+    expect(isClientUserAgentMismatch("", CHROME_UA)).toBe(false);
+    expect(isClientUserAgentMismatch("   ", CHROME_UA)).toBe(false);
     expect(isClientUserAgentMismatch(CHROME_UA, undefined)).toBe(false);
+    expect(isClientUserAgentMismatch(CHROME_UA, "   ")).toBe(false);
     expect(isClientUserAgentMismatch(` ${CHROME_UA} `, CHROME_UA)).toBe(false);
     expect(isClientUserAgentMismatch(CHROME_UA, "different-agent")).toBe(true);
   });
@@ -633,6 +636,91 @@ describe("request fingerprint helpers", () => {
         kind: "browser-automation",
         confidence: "high",
       },
+    });
+  });
+
+  it("scores only conclusive trusted-edge crawler spoofing verdicts", () => {
+    for (const crawlerVerificationStatus of [undefined, "unverified"] as const) {
+      const result = detectServerClient({ crawlerVerificationStatus });
+      expect(
+        result.signals.find(({ id }) => id === "crawler-identity-spoofed"),
+      ).toMatchObject({ triggered: false });
+      expect(result.isLegitClient).toBe(true);
+      expect(result.context.crawlerVerificationStatus).toBe(
+        crawlerVerificationStatus,
+      );
+    }
+
+    const verified = detectServerClient({
+      crawlerVerificationStatus: "verified",
+    });
+    expect(verified).toMatchObject({
+      isLegitClient: true,
+      suspicionScore: 0,
+      automation: {
+        isAutomated: true,
+        kind: "unknown",
+        confidence: "high",
+        evidence: ["Trusted edge verified an automated crawler identity"],
+      },
+      context: { crawlerVerificationStatus: "verified" },
+    });
+
+    const verifiedGooglebot = detectServerClient({
+      crawlerVerificationStatus: "verified",
+      userAgent: "Mozilla/5.0 Googlebot/2.1",
+    });
+    expect(verifiedGooglebot.automation).toMatchObject({
+      isAutomated: true,
+      kind: "unknown",
+      confidence: "high",
+      evidence: expect.arrayContaining([
+        "User-Agent claims crawler",
+        "Trusted edge verified an automated crawler identity",
+      ]),
+    });
+
+    const verifiedCurl = detectServerClient({
+      crawlerVerificationStatus: "verified",
+      userAgent: "curl/8.0.1",
+    });
+    expect(verifiedCurl.automation).toMatchObject({
+      kind: "curl",
+      confidence: "high",
+      evidence: expect.arrayContaining([
+        "User-Agent claims curl",
+        "Trusted edge verified an automated crawler identity",
+      ]),
+    });
+
+    const spoofed = detectServerClient({
+      crawlerVerificationStatus: "spoofed",
+    });
+    expect(spoofed).toMatchObject({
+      isLegitClient: false,
+      confidence: "high",
+      automation: {
+        isAutomated: true,
+        kind: "unknown",
+        confidence: "high",
+      },
+      context: { crawlerVerificationStatus: "spoofed" },
+    });
+    expect(
+      spoofed.signals.find(({ id }) => id === "crawler-identity-spoofed"),
+    ).toMatchObject({ triggered: true, weight: 0.95, confidence: "high" });
+
+    const spoofedSelenium = detectServerClient({
+      crawlerVerificationStatus: "spoofed",
+      userAgent: "Mozilla/5.0 Selenium/4.0",
+    });
+    expect(spoofedSelenium.automation).toMatchObject({
+      kind: "selenium",
+      confidence: "high",
+      evidence: expect.arrayContaining([
+        "User-Agent claims selenium",
+        "Trusted edge conclusively rejected the claimed crawler identity",
+      ]),
     });
   });
 
@@ -691,6 +779,11 @@ describe("request fingerprint helpers", () => {
     expect(isClientPlatformMismatch(CHROME_UA, "Linux", undefined)).toBe(true);
     expect(isClientPlatformMismatch(CHROME_UA, undefined, '"Linux"')).toBe(true);
     expect(isClientPlatformMismatch(CHROME_UA, "unknown", '"Windows"')).toBe(false);
+    expect(isClientPlatformMismatch(CHROME_UA, "Win32", '"unknown"')).toBe(false);
+    expect(isClientPlatformMismatch(CHROME_UA, "Darwin", '"Windows"')).toBe(false);
+    expect(isClientPlatformMismatch(CHROME_UA, "", undefined)).toBe(false);
+    expect(isClientPlatformMismatch(CHROME_UA, undefined, "")).toBe(false);
+    expect(isClientPlatformMismatch(CHROME_UA, " Win32 ", ' "Windows" ')).toBe(false);
     expect(
       isClientPlatformMismatch(
         "Mozilla/5.0 (Linux; Android 14)",

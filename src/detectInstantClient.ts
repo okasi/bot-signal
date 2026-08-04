@@ -12,6 +12,7 @@ import {
 } from "./asyncChecks.js";
 import {
   getPropertySafely,
+  hasWebGlContext,
   isCanvasTampered,
   isChromeDriver,
   isDefaultAutomationViewport,
@@ -147,6 +148,8 @@ const INSTANT_ASYNC_SIGNAL_SPECS: AsyncSignalSpec[] = [
   { id: "isNotificationPermissionInconsistent", description: "Notification and Permissions API states contradict", weight: 0.55, confidence: "high" },
   { id: "isHighEntropyUserAgentDataMismatch", description: "High-entropy Client Hints conflict with the User-Agent", weight: 0.65, confidence: "high" },
   { id: "isWorkerInconsistent", description: "The worker realm names a different operating system than the page", weight: 0.8, confidence: "high" },
+  { id: "isWebDriverInWorker", description: "Worker navigator exposes webdriver", weight: 0.9, confidence: "high" },
+  { id: "isWorkerWebGLInconsistent", description: "Worker and page WebGL identities disagree", weight: 0.35, confidence: "medium" },
   { id: "isCdpDetectedInWorker", description: "Chrome DevTools Protocol serialized an Error inside a worker", weight: 0.25, confidence: "medium" },
   { id: "isMissingMediaDevices", description: "Desktop Chromium enumerated no audio or video devices", weight: 0.3, confidence: "low" },
 ];
@@ -205,9 +208,7 @@ function detectSync(context: ExtendedWindow): BooleanChecks {
     context.navigator.userAgent.startsWith("Mozilla/5.0 (") &&
     getScriptingUserAgentKind(context.navigator.userAgent) === null &&
     !isBotUserAgent(context.navigator.userAgent);
-  const isWebGLSupported = Boolean(
-    context.document.createElement("canvas").getContext("webgl"),
-  );
+  const isWebGLSupported = hasWebGlContext(context);
 
   const userAgent = context.navigator.userAgent;
   const isModern =
@@ -398,6 +399,7 @@ function classifyInstantAutomation(
 
   const attributionSignalIds = new Set([
     "isWebDriver",
+    "isWebDriverInWorker",
     "isDomAutomation",
     "isHeadless",
     "isSuspiciousWebDriverDescriptor",
@@ -410,6 +412,9 @@ function classifyInstantAutomation(
 
   const isBrowserAutomationPattern =
     checks.isWebDriver ||
+    signals.some(
+      (signal) => signal.id === "isWebDriverInWorker" && signal.triggered,
+    ) ||
     checks.isDomAutomation ||
     checks.isHeadless ||
     checks.isSuspiciousWebDriverDescriptor;

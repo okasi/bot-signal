@@ -234,6 +234,47 @@ function isPointerClick(click: ClickSample): boolean {
   return !(click.isTrusted && click.detail === 0);
 }
 
+interface InputCoordinateSample {
+  pageX?: number;
+  pageY?: number;
+  screenX?: number;
+  screenY?: number;
+  isFullscreen?: boolean;
+  isTrusted: boolean;
+}
+
+function hasLeakedInputCoordinates(sample: InputCoordinateSample): boolean {
+  return (
+    sample.isTrusted &&
+    sample.isFullscreen === false &&
+    typeof sample.pageX === "number" &&
+    typeof sample.pageY === "number" &&
+    typeof sample.screenX === "number" &&
+    typeof sample.screenY === "number" &&
+    sample.pageX === sample.screenX &&
+    sample.pageY === sample.screenY
+  );
+}
+
+/**
+ * Repeated trusted pointer events expose CDP Input's page/screen coordinate
+ * equality. Fullscreen and keyboard-activated clicks are excluded.
+ * @internal
+ */
+export function hasCdpInputCoordinateLeak(
+  mouseMoves: MouseSample[],
+  clicks: ClickSample[],
+): boolean {
+  const leaked = [
+    ...mouseMoves,
+    ...clicks.filter(isPointerClick),
+  ].filter(hasLeakedInputCoordinates);
+  const distinctPositions = new Set(
+    leaked.map((sample) => `${sample.pageX},${sample.pageY}`),
+  );
+  return distinctPositions.size >= 2;
+}
+
 function hasRecentSample(
   samples: Array<{ t: number }>,
   at: number,
@@ -459,6 +500,13 @@ export function buildBehavioralSignals(samples: BehavioralSamples): BehavioralSi
       hasZeroMouseMovementDeltas(samples.mouseMoves),
       0.3,
       "medium",
+    ),
+    createSignal(
+      "cdp-input-coordinate-leak",
+      "Repeated trusted pointer events exposed identical page and screen coordinates",
+      hasCdpInputCoordinateLeak(samples.mouseMoves, samples.clicks),
+      0.2,
+      "low",
     ),
     createSignal(
       "teleport-mouse",
