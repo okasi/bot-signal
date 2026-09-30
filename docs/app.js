@@ -572,6 +572,9 @@ async function observe(durationMs = 5_000) {
   button.disabled = true;
   setBanner("behavioral", "pending", "Observing…", "Move or swipe, scroll, tap, and type like you normally would");
 
+  // Defer until the click that triggered us has finished dispatching.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
   const detector = createBehavioralClientDetector({
     context: window,
     scoreThreshold: SCORE_THRESHOLD,
