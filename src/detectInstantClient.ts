@@ -109,7 +109,7 @@ const INSTANT_SIGNAL_SPECS: InstantSignalSpec[] = [
   { id: "isPhantomJS", description: "PhantomJS globals present", weight: 1, confidence: "high" },
   { id: "isNightmare", description: "Nightmare.js marker present", weight: 1, confidence: "high" },
   { id: "isDomAutomation", description: "DOM automation controller globals present", weight: 1, confidence: "high" },
-  { id: "isHeadless", description: "HeadlessChrome user agent/appVersion or webdriver flag", weight: 0.9, confidence: "high" },
+  { id: "isHeadless", description: "Lightpanda/HeadlessChrome UA, HeadlessChrome appVersion/Client Hints, or webdriver flag", weight: 0.9, confidence: "high" },
   { id: "isSuspiciousWebDriverDescriptor", description: "navigator.webdriver descriptor was tampered with", weight: 0.9, confidence: "high" },
   { id: "isSuspiciousResolution", description: "Screen smaller than any real device", weight: 0.7, confidence: "medium" },
   { id: "isUserAgentValid", description: "User agent is malformed or identifies a known bot, scripting, or automation client", weight: 0.7, confidence: "high", triggerWhenFalse: true },
@@ -202,10 +202,12 @@ function detectSync(context: ExtendedWindow): BooleanChecks {
     isLegacyAutomationArtifacts(context);
 
   // Custom checks by okasi
+  const userAgent = context.navigator.userAgent;
   const isHeadless = Boolean(
     isWebDriver ||
-      context.navigator.userAgent.includes("Headless") ||
+      userAgent.includes("Headless") ||
       context.navigator.appVersion?.includes("Headless") ||
+      getBotUserAgentKind(userAgent) === "lightpanda" ||
       context.navigator.userAgentData?.brands.some((brand) =>
         /Headless/i.test(brand.brand),
       ),
@@ -218,7 +220,6 @@ function detectSync(context: ExtendedWindow): BooleanChecks {
     !isBotUserAgent(context.navigator.userAgent);
   const isWebGLSupported = hasWebGlContext(context);
 
-  const userAgent = context.navigator.userAgent;
   const isModern =
     (userAgent.includes("Chrome/") &&
       parseBrowserVersion(userAgent, /Chrome\/(\d+\.\d+)/) >=

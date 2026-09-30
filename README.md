@@ -220,9 +220,10 @@ want TLS/User-Agent consistency and attribution corroboration.
 Both instant and server results include an `automation` assessment. When
 page-realm artifacts are exposed they can identify `playwright`, `puppeteer`,
 `selenium`, `phantomjs`, or `nightmare`. A scripting-client User-Agent can
-suggest `curl`, `python`, `go`, or `java`; explicit UA products can identify a
-`browser-automation`, `playwright`, `puppeteer`, `selenium`, or `phantomjs`
-family. Crawler and generic HTTP-client UAs use `kind: "unknown"` with explicit
+suggest `curl`, `python`, `go`, or `java`; explicit UA products can identify
+`lightpanda`, `browser-automation`, `playwright`, `puppeteer`, `selenium`, or
+`phantomjs`. Lightpanda's `Lightpanda/<version>` UA also triggers `isHeadless`.
+Crawler and generic HTTP-client UAs use `kind: "unknown"` with explicit
 evidence to preserve the package's closed attribution union. TLS fingerprints only add risk or
 corroborating evidence and never identify a family alone. When fingerprints
 overlap, the result uses `browser-automation` plus `alternatives`. Patchright
@@ -265,7 +266,7 @@ applications can reuse those global names.
 | `isPhantomJS` | 1.0 | PhantomJS-specific `callPhantom` or `_phantom` global present |
 | `isNightmare` | 1.0 | Nightmare.js marker |
 | `isDomAutomation` | 1.0 | Chrome DOM automation globals |
-| `isHeadless` | 0.9 | WebDriver, or a HeadlessChrome UA / appVersion / Client Hints brand |
+| `isHeadless` | 0.9 | WebDriver, Lightpanda UA, or a HeadlessChrome UA / appVersion / Client Hints brand |
 | `isSuspiciousWebDriverDescriptor` | 0.9 | Patched/deleted `navigator.webdriver` |
 | `isSuspiciousResolution` | 0.7 | Screen < 136×170 |
 | `isUserAgentValid` | 0.7 | UA is malformed or contains a known bot, scripting, or automation token |

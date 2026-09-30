@@ -158,6 +158,26 @@ describe("detectInstantClient", () => {
     expect(result.isLegitClient).toBe(false);
   });
 
+  it("detects and attributes Lightpanda browser clients", () => {
+    const result = detectInstantClient(
+      createMockContext({
+        navigator: {
+          userAgent: "Lightpanda/1.0",
+        } as ExtendedWindow["navigator"],
+      }),
+    );
+
+    expect(result.isHeadless).toBe(true);
+    expect(result.isUserAgentValid).toBe(false);
+    expect(result.isLegitClient).toBe(false);
+    expect(result.automation).toMatchObject({
+      isAutomated: true,
+      kind: "lightpanda",
+      confidence: "high",
+      evidence: ["User-Agent claims lightpanda"],
+    });
+  });
+
   it("detects modern Safari user agents without treating them as Chromium", () => {
     const result = detectInstantClient(
       createMockContext({

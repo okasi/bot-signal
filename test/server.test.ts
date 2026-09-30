@@ -596,6 +596,8 @@ describe("request fingerprint helpers", () => {
   it("flags conservative bot and automation User-Agent tokens", () => {
     expect(isBotUserAgent(undefined)).toBe(false);
     expect(isBotUserAgent(CHROME_UA)).toBe(false);
+    expect(isBotUserAgent("Lightpanda/1.0")).toBe(true);
+    expect(isBotUserAgent("MyLightpanda/1.0")).toBe(false);
     expect(isBotUserAgent("Mozilla/5.0 Googlebot/2.1")).toBe(true);
     expect(isBotUserAgent("Mozilla/5.0 Selenium/4.0")).toBe(true);
     expect(isBotUserAgent("Mozilla/5.0 HeadlessChrome/140.0.0.0")).toBe(true);
@@ -620,6 +622,18 @@ describe("request fingerprint helpers", () => {
       detectServerClient({ userAgent: "Mozilla/5.0 Selenium/4.0" }).automation
         .kind,
     ).toBe("selenium");
+    expect(detectServerClient({ userAgent: "Lightpanda/1.0" })).toMatchObject({
+      isLegitClient: false,
+      automation: {
+        isAutomated: true,
+        kind: "lightpanda",
+        confidence: "high",
+        evidence: ["User-Agent claims lightpanda"],
+      },
+      signals: expect.arrayContaining([
+        expect.objectContaining({ id: "bot-user-agent", triggered: true }),
+      ]),
+    });
     expect(detectServerClient({ userAgent: "Wget/1.21.4" })).toMatchObject({
       isLegitClient: false,
       automation: { isAutomated: true, kind: "unknown", confidence: "high" },

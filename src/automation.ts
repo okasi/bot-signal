@@ -3,6 +3,7 @@ export type AutomationConfidence = "high" | "medium" | "low";
 export type AutomationKind =
   | "unknown"
   | "browser-automation"
+  | "lightpanda"
   | "playwright"
   | "patchright"
   | "puppeteer"

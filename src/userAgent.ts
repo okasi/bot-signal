@@ -28,6 +28,7 @@ export type BotUserAgentKind =
   | "crawler"
   | "http-client"
   | "browser-automation"
+  | "lightpanda"
   | "playwright"
   | "puppeteer"
   | "selenium"
@@ -54,6 +55,10 @@ const BOT_USER_AGENT_PATTERNS: Array<{
   {
     kind: "browser-automation",
     pattern: /(?:^|[\s;(])HeadlessChrome\/\d+(?:\.\d+)*(?=$|[\s;)])/i,
+  },
+  {
+    kind: "lightpanda",
+    pattern: /(?:^|[\s;(])Lightpanda\/\d+(?:\.\d+)*(?=$|[\s;)])/i,
   },
   {
     kind: "playwright",

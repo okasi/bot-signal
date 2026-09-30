@@ -56,6 +56,7 @@ function exhaustLegacyAutomationKind(kind: AutomationKind): string {
   switch (kind) {
     case "unknown":
     case "browser-automation":
+    case "lightpanda":
     case "playwright":
     case "patchright":
     case "puppeteer":
