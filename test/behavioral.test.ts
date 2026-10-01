@@ -53,6 +53,13 @@ function createHumanMouseMoves(): MouseSample[] {
   ];
 }
 
+function createClosedMouseMoves(): MouseSample[] {
+  return [
+    [0, 0], [50, 0], [100, 0], [100, 50], [100, 100],
+    [50, 100], [0, 100], [0, 50], [0, 0],
+  ].map(([x, y], index) => ({ x, y, t: index * 100, isTrusted: true }));
+}
+
 function createLinearScrolls(count = 5): ScrollSample[] {
   const scrolls: ScrollSample[] = [];
 
@@ -129,6 +136,52 @@ describe("behavioral analysis", () => {
   it("detects linear mouse movement", () => {
     expect(hasLinearMouseMovement(createLinearMouseMoves())).toBe(true);
     expect(hasLinearMouseMovement(createHumanMouseMoves())).toBe(false);
+  });
+
+  it.each([0, 0.001])("does not flag a square path ending at y=%s as linear", (endY) => {
+    const moves = createClosedMouseMoves();
+    moves[moves.length - 1].y = endY;
+
+    expect(hasLinearMouseMovement(moves)).toBe(false);
+  });
+
+  it.each([[1, 0], [0, 1], [1, 2]])(
+    "detects collinear out-and-back movement along (%s, %s)",
+    (dx, dy) => {
+      const moves = [0, 50, 100, 150, 200, 150, 100, 50, 0].map((step, index) => ({
+        x: 20 + step * dx,
+        y: 30 + step * dy,
+        t: index * 100,
+        isTrusted: true,
+      }));
+
+      expect(hasLinearMouseMovement(moves)).toBe(true);
+    },
+  );
+
+  it.each([[3, true], [4, false]] as const)(
+    "checks a closed path's %spx deviation against its farthest point",
+    (deviation, expected) => {
+      let t = 0;
+      const points = [[0, 0], [0, deviation], [40, 0], [80, 0], [120, 0], [80, 0], [40, 0], [0, 0]];
+      const moves = points.map(([x, y], index) => {
+        if (index > 0) {
+          t += Math.hypot(x - points[index - 1][0], y - points[index - 1][1]);
+        }
+        return { x, y, t, isTrusted: true };
+      });
+
+      expect(hasLinearMouseMovement(moves)).toBe(expected);
+    },
+  );
+
+  it.each([14, 15])("does not flag closed windows in a %s-point circular trace", (count) => {
+    const moves = Array.from({ length: count }, (_, index) => {
+      const angle = (index % 13) * 2 * Math.PI / 13;
+      return { x: 100 * Math.cos(angle), y: 100 * Math.sin(angle), t: index * 100, isTrusted: true };
+    });
+
+    expect(hasLinearMouseMovement(moves)).toBe(false);
   });
 
   it("requires enough usable mouse speed samples before flagging linear movement", () => {
@@ -849,6 +902,21 @@ describe("touch gesture analysis", () => {
     expect(hasLinearTouchMovement(humanSwipe())).toBe(false);
     expect(hasLinearTouchMovement([])).toBe(false);
     expect(hasLinearTouchMovement()).toBe(false);
+  });
+
+  it("does not flag a closed square swipe as linear", () => {
+    expect(hasLinearTouchMovement(swipe(createClosedMouseMoves()))).toBe(false);
+  });
+
+  it("keeps stationary and collinear out-and-back swipes linear", () => {
+    const points = [0, 50, 100, 150, 200, 150, 100, 50, 0].map((x, index) => ({
+      x,
+      y: 10,
+      t: index * 100,
+    }));
+
+    expect(hasLinearTouchMovement(swipe(points))).toBe(true);
+    expect(hasLinearTouchMovement(swipe(points.map((point) => ({ ...point, x: 0 }))))).toBe(true);
   });
 
   it("flags a contact point that jumps mid-gesture", () => {
