@@ -51,6 +51,39 @@ describe("patchright behavioral analysis exports in browser", () => {
     await context.close();
   });
 
+  it("does not score closed mouse and touch paths as linear in browser", async () => {
+    const { context, page } = await openHarnessPage(browser, server.baseUrl);
+
+    const result = await page.evaluate(() => {
+      const detection = (window as any).__detection;
+      const points = [
+        [0, 0], [50, 0], [100, 0], [100, 50], [100, 100],
+        [50, 100], [0, 100], [0, 50], [0, 0],
+      ].map(([x, y], index) => ({ x, y, t: index * 100, isTrusted: true }));
+
+      return detection.analyzeBehavioralSamples({
+        mouseMoves: points,
+        touches: points.map((point, index) => ({
+          ...point,
+          kind: index === 0 ? "start" : "move",
+        })),
+        scrolls: [],
+        keyPresses: [],
+        clicks: [],
+        observationMs: 1_000,
+      });
+    });
+
+    for (const id of ["linear-mouse-movement", "linear-touch-movement"]) {
+      expect(result.signals.find((signal: { id: string }) => signal.id === id))
+        .toMatchObject({ triggered: false, score: 0 });
+    }
+    expect(result.suspicionScore).toBe(0);
+    expect(result.sampleCounts).toMatchObject({ mouseMoves: 9, touches: 9 });
+
+    await context.close();
+  });
+
   it("hasLinearMouseMovement detects scripted paths in browser", async () => {
     const { context, page } = await openHarnessPage(browser, server.baseUrl);
 

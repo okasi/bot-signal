@@ -112,8 +112,19 @@ interface PointSample {
 
 function maxLineDeviation(points: PointSample[]): number {
   const start = points[0];
-  const end = points[points.length - 1];
-  const lineLength = Math.hypot(end.x - start.x, end.y - start.y);
+  let end = points[points.length - 1];
+  let lineLength = Math.hypot(end.x - start.x, end.y - start.y);
+
+  // A closed path still needs a baseline; use its farthest point from the start.
+  if (lineLength === 0) {
+    for (const point of points) {
+      const distance = Math.hypot(point.x - start.x, point.y - start.y);
+      if (distance > lineLength) {
+        end = point;
+        lineLength = distance;
+      }
+    }
+  }
 
   if (lineLength === 0) {
     return 0;

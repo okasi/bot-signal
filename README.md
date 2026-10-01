@@ -385,6 +385,10 @@ teleporting between fingers.
 Touch taps, keyboard-activated clicks (`detail === 0`), and cursor re-entry
 after leaving the window are recognized and never counted against the user.
 
+Mouse and touch linearity checks still measure path deviation when a trace
+returns to its starting point. Closing a loop does not by itself make the path
+linear; collinear out-and-back movement is evaluated with the usual tolerance.
+
 The exact numeric thresholds inside the heuristics (linearity CV cutoffs,
 distance/time teleport rules, etc.) are tuned constants. They are not
 currently exposed as options in order to keep the public API small and
