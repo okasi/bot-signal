@@ -252,7 +252,12 @@ Each check contributes its weight to `suspicionScore`; `isLegitClient` is
 `suspicionScore < scoreThreshold` (default 0.5). Every boolean flag is still on
 the result for inspection, alongside `signals[]` with per-check weights.
 Distinctive Playwright, Puppeteer, and ChromeDriver artifacts block on their
-own. Generic legacy or embedded-runtime markers stay soft because ordinary
+own. `isPlaywright` is set when Playwright-specific page artifacts are exposed.
+A default Playwright-controlled Chromium session can instead show generic
+automation markers; those results use `kind: "browser-automation"` and list
+Playwright among the possible alternatives. A stealth setup that removes all
+page-visible automation evidence cannot be attributed to Playwright reliably.
+Generic legacy or embedded-runtime markers stay soft because ordinary
 applications can reuse those global names.
 
 | Flag | Weight | Triggers when |
@@ -672,14 +677,25 @@ git clone https://github.com/okasi/bot-signal.git
 cd bot-signal
 npm install
 npx patchright install chromium   # once, for browser tests
+npx playwright install chromium  # once, for actual Playwright tests
 npm test                          # unit tests
 npm run test:coverage             # unit tests + 100% coverage gate
 npm run test:patchright           # real Chromium via patchright
+npm run test:playwright           # actual Playwright, headed + headless Chromium
 npm run build
 npm run lint:package              # publint + Are The Types Wrong
-npm run check                     # typecheck + coverage + patchright + build + package lint
+npm run check                     # typecheck + coverage + both browser suites + build + package lint
 npm run build:site                # generate the GitHub Pages artifact in .pages/
 ```
+
+The Playwright suite runs detection in ordinary page scripts and verifies
+`isHuman()` and `isHumanAsync()` return `false` for stock headed and headless
+Chromium. A real exposed binding verifies `isPlaywright` and exact attribution.
+Headed tests need a display; on Linux without one, use
+`xvfb-run -a npm run test:playwright`.
+CI also runs this suite on Windows. The demo's **Copy detection details** button
+copies the library version, browser identity, and current result for reporting
+false negatives; share it together with your automation launch configuration.
 
 Live demo: https://okasi.github.io/bot-signal/ (deployed from `.pages/` on push to `main`).
 

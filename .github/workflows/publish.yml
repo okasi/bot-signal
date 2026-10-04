@@ -89,6 +89,14 @@ jobs:
         if: steps.publish_status.outputs.should_publish == 'true'
         run: npm run test:patchright
 
+      - name: Install Playwright Chromium
+        if: steps.publish_status.outputs.should_publish == 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Playwright browser tests
+        if: steps.publish_status.outputs.should_publish == 'true'
+        run: xvfb-run -a npm run test:playwright
+
       - name: Build
         if: steps.publish_status.outputs.should_publish == 'true'
         run: npm run build

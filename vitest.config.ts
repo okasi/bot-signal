@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["test/**/*.test.ts"],
-    exclude: ["test/patchright/**"],
+    exclude: ["test/patchright/**", "test/playwright/**"],
     coverage: {
       provider: "v8",
       include: ["src/**/*.ts"],

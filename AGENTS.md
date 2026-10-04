@@ -55,12 +55,13 @@ data/                         # bundled blocklists (shipped in npm package)
 docs/                         # GitHub Pages demo source (index.html + app.js)
 scripts/build-site.ts         # builds .pages/ with dist/browser.js + stamped asset URLs
 scripts/update-ip-data.ts     # fetches and writes data/*.csv
-test/                         # vitest unit + patchright browser tests
+test/                         # vitest unit + patchright and playwright browser tests
   fixtures/harness.html         # DOM fixtures for browser tests
   helpers/                      # test server + patchright harness
   patchright/                   # real Chromium tests via patchright
+  playwright/                   # actual Playwright, headed/headless, page-owned detection
 .github/workflows/
-  ci.yml                      # typecheck + unit + patchright + build (Node 22+)
+  ci.yml                      # typecheck + unit + both browser suites + build (Node 22+)
   pages.yml                   # build .pages/ and deploy via GitHub Pages Actions
   publish.yml                 # publish to npm on v* tags
   update-ip-data.yml          # weekly blocklist refresh
@@ -74,10 +75,11 @@ npm run typecheck
 npm test                    # unit tests (vitest, mocked window)
 npm run test:coverage       # unit tests + 100% coverage gate
 npm run test:patchright     # browser tests (patchright + real Chromium)
-npm run test:all            # unit + patchright
+npm run test:playwright     # browser tests (actual Playwright, headed + headless Chromium)
+npm run test:all            # unit + patchright + playwright
 npm run build
 npm run lint:package        # publint + Are The Types Wrong
-npm run check               # typecheck + coverage + patchright + build + package lint
+npm run check               # typecheck + coverage + both browser suites + build + package lint
 npm run build:site        # GitHub Pages artifact in .pages/
 npm run update:ip-data    # refresh data/*.csv from upstream sources
 ```
@@ -85,6 +87,8 @@ npm run update:ip-data    # refresh data/*.csv from upstream sources
 Always run `npm run check` before committing.
 
 Patchright browser tests require `npx patchright install chromium` once after install.
+Playwright browser tests require `npx playwright install chromium`; headed tests
+need a display (use `xvfb-run -a npm run test:playwright` on Linux without one).
 The browser bundle (`dist/browser.js`, entry `src/browser.ts`) is injected into Patchright's
 isolated execution context via blob URL import — page scripts in the main world are not visible
 to `page.evaluate`.
@@ -183,11 +187,12 @@ server 0.5.
 ## Testing notes
 
 - **Coverage gate is 100%** (statements/branches/functions/lines) on `src/**`
-  except `types.ts`; patchright tests are excluded from coverage, so every
+  except `types.ts`; browser tests are excluded from coverage, so every
   branch needs a unit test. Run `npm run test:coverage`.
 - Server tests use `createFixtureDataDir()` with temp CSVs and `resetIpListCheckerCache()`
 - Browser instant unit tests mock `window` / `navigator` with prototype-based `webdriver`
 - Patchright tests (`test/patchright/`) run detection in real Chromium via `test/helpers/patchright-harness.ts`; `runInstantDetection(page, { scoreThreshold })` passes options through
+- Playwright tests (`test/playwright/`) use the actual `playwright` package with stock headed/headless Chromium, a real exposed binding, and the demo UI including copied diagnostics. Detection runs in ordinary page scripts and results are read from a DOM attribute, so Playwright evaluation stacks cannot influence the detector. Both browser suites are excluded from unit coverage and included in `npm run check` and CI; the Playwright suite also has a dedicated Windows CI job.
 - GeoIP tests call real `lookup("8.8.8.8")` — requires `doc999tor-fast-geoip` data in node_modules
 
 ## Package publishing

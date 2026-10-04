@@ -84,6 +84,7 @@ describe("patchright async instant detection", () => {
     expect(result.isUserAgentDataMismatch).toBe(false);
     expect(result.automation.kind).toBe("browser-automation");
     expect(result.automation.alternatives).toContain("patchright");
+    expect(result.automation.alternatives).toContain("playwright");
 
     await context.close();
   });
