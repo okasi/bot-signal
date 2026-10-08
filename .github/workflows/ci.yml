@@ -59,5 +59,11 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Install Nginx
+        run: sudo apt-get update && sudo apt-get install -y nginx
+
+      - name: Nginx gateway integration tests
+        run: npm run test:nginx
+
       - name: Package lint
         run: npm run lint:package

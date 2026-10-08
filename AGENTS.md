@@ -52,6 +52,7 @@ src/
     timezone.ts               # TZ offset + accept-language checks
     types.ts
 data/                         # bundled blocklists (shipped in npm package)
+examples/nginx/               # shipped Node decision service + Nginx auth_request config
 docs/                         # GitHub Pages demo source (index.html + app.js)
 scripts/build-site.ts         # builds .pages/ with dist/browser.js + stamped asset URLs
 scripts/update-ip-data.ts     # fetches and writes data/*.csv
@@ -60,6 +61,7 @@ test/                         # vitest unit + patchright and playwright browser 
   helpers/                      # test server + patchright harness
   patchright/                   # real Chromium tests via patchright
   playwright/                   # actual Playwright, headed/headless, page-owned detection
+  nginx/                        # decision service + real Nginx allow/deny/failure tests
 .github/workflows/
   ci.yml                      # typecheck + unit + both browser suites + build (Node 22+)
   pages.yml                   # build .pages/ and deploy via GitHub Pages Actions
@@ -76,15 +78,25 @@ npm test                    # unit tests (vitest, mocked window)
 npm run test:coverage       # unit tests + 100% coverage gate
 npm run test:patchright     # browser tests (patchright + real Chromium)
 npm run test:playwright     # browser tests (actual Playwright, headed + headless Chromium)
-npm run test:all            # unit + patchright + playwright
+npm run test:nginx          # decision service + real Nginx (requires installed nginx)
+npm run test:all            # unit + patchright + playwright + nginx
 npm run build
 npm run lint:package        # publint + Are The Types Wrong
-npm run check               # typecheck + coverage + both browser suites + build + package lint
+npm run check               # typecheck + coverage + browser suites + nginx + build + package lint
 npm run build:site        # GitHub Pages artifact in .pages/
 npm run update:ip-data    # refresh data/*.csv from upstream sources
 ```
 
 Always run `npm run check` before committing.
+
+Nginx tests require a local `nginx` binary with `auth_request` support (Ubuntu:
+`sudo apt-get install nginx`, macOS: `brew install nginx`). Set `NGINX_BIN` for a
+nonstandard path. `vitest.nginx.config.ts` runs `test/nginx/` against the built
+package with temporary Nginx processes/ports; the suite is excluded from unit
+coverage and runs in Linux CI. The shipped example binds the Node service to
+loopback, whitelists request metadata at Nginx, and uses unchanged server
+detection. Its observation/enforcement and infrastructure-failure behavior
+belong to the example, not the library's detection logic.
 
 Patchright browser tests require `npx patchright install chromium` once after install.
 Playwright browser tests require `npx playwright install chromium`; headed tests
@@ -197,7 +209,7 @@ server 0.5.
 
 ## Package publishing
 
-`package.json` `files`: `["dist", "data"]`  
+`package.json` `files`: `["dist", "data", "examples/nginx"]`
 Exports: `.` (browser condition → `dist/browser.*`), `./browser`, `./server`,
 each with ESM + CJS + split `.d.ts`/`.d.cts`. CDN: `unpkg`/`jsdelivr` point at
 `dist/browser.global.js` (IIFE, global `BotSignal`). Keep `publint` and
