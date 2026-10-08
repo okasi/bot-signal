@@ -84,23 +84,25 @@
   },
   "files": [
     "dist",
-    "data"
+    "data",
+    "examples/nginx"
   ],
   "scripts": {
     "build": "tsup",
     "build:site": "npm run build && tsx scripts/build-site.ts",
-    "check": "npm run typecheck && npm run test:coverage && npm run test:patchright && npm run test:playwright && npm run build && npm run lint:package",
+    "check": "npm run typecheck && npm run test:coverage && npm run test:patchright && npm run test:playwright && npm run test:nginx && npm run build && npm run lint:package",
     "dev": "tsup --watch",
     "lint:package": "publint --strict && attw --pack . --no-emoji",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "test:patchright": "npm run build && vitest run --config vitest.patchright.config.ts",
-    "test:all": "npm run test && npm run test:patchright && npm run test:playwright",
+    "test:all": "npm run test && npm run test:patchright && npm run test:playwright && npm run test:nginx",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.types-test.json",
     "update:ip-data": "tsx scripts/update-ip-data.ts",
     "prepublishOnly": "npm run typecheck && npm run test:coverage && npm run build && npm run lint:package",
-    "test:playwright": "npm run build && vitest run --config vitest.playwright.config.ts"
+    "test:playwright": "npm run build && vitest run --config vitest.playwright.config.ts",
+    "test:nginx": "npm run build && vitest run --config vitest.nginx.config.ts"
   },
   "keywords": [
     "bot-detection",

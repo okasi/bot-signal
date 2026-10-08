@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["test/**/*.test.ts"],
-    exclude: ["test/patchright/**", "test/playwright/**"],
+    exclude: ["test/patchright/**", "test/playwright/**", "test/nginx/**"],
     coverage: {
       provider: "v8",
       include: ["src/**/*.ts"],

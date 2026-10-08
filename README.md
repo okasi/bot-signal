@@ -242,6 +242,110 @@ Server reputation/geo signals can make `isLegitClient` false without setting
 
 Bundled IP data is refreshed weekly. Run locally: `npm run update:ip-data`.
 
+### Nginx gateway integration
+
+Nginx can enforce server detection before requests reach your application. The
+included [decision service](examples/nginx/server.mjs) calls the existing
+`detectServerClientAsync()` API; the [Nginx configuration](examples/nginx/server.conf)
+uses [`auth_request`](https://nginx.org/en/docs/http/ngx_http_auth_request_module.html)
+to allow or deny each request. No detection rules are changed and no application
+middleware is required.
+
+Requirements: Node.js ≥ 22, Nginx built with `--with-http_auth_request_module`
+(`nginx -V` lists build options), and your application listening on
+`127.0.0.1:3000`. Install Nginx through your OS package manager, for example
+`sudo apt-get install nginx` on Ubuntu or `brew install nginx` on macOS.
+
+Install the package and start the decision service on the **same host as Nginx**:
+
+```bash
+npm install bot-signal
+BOT_SIGNAL_MODE=observe node node_modules/bot-signal/examples/nginx/server.mjs
+```
+
+Include the configuration using its **absolute path** inside your existing
+`nginx.conf`'s `http { ... }` block, then validate and reload Nginx:
+
+```nginx
+http {
+    # Other existing configuration...
+    include /absolute/path/node_modules/bot-signal/examples/nginx/server.conf;
+}
+```
+
+```bash
+nginx -t
+nginx -s reload
+```
+
+Use `sudo` for these Nginx commands if your installation requires it. The example
+gateway listens on `127.0.0.1:8080`; the decision service listens only on
+`127.0.0.1:3001`. For deployment, copy the configuration into your Nginx setup,
+adjust the application upstream, and put the protected location and internal
+`/_bot_signal` location in your site's existing HTTPS server. Keep both the
+application upstream and decision service inaccessible from the public network
+so requests cannot bypass the gateway. Supervise the Node process with your
+existing service manager. For a repository checkout, run `npm ci && npm run build`,
+then `node examples/nginx/server.mjs`.
+
+Observation mode logs the score, triggered signal IDs, and intended decision
+while allowing successfully evaluated requests. To check it locally:
+
+```bash
+curl -i http://127.0.0.1:8080/
+```
+
+The curl UA is suspicious, so the log reports `decision: "deny"` and
+`allowed: true`. After reviewing traffic, restart the service in enforcement mode:
+
+```bash
+BOT_SIGNAL_MODE=enforce BOT_SIGNAL_THRESHOLD=0.5 \
+  node node_modules/bot-signal/examples/nginx/server.mjs
+```
+
+Now the same curl request receives `403` before reaching the application. A
+request with no triggered signals is allowed; this is a risk assessment, not
+proof that the caller is human. Nginx overwrites `X-Bot-Signal-Score`,
+`X-Bot-Signal-Decision`, and `X-Bot-Signal-Mode` on requests forwarded to the app.
+In observation mode, `Decision: deny` describes what enforcement would do.
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `BOT_SIGNAL_MODE` | `observe` | Log decisions; use `enforce` to deny suspicious requests |
+| `BOT_SIGNAL_PORT` | `3001` | Loopback decision-service port; update the Nginx upstream if changed |
+| `BOT_SIGNAL_THRESHOLD` | `0.5` | Existing server score threshold, greater than 0 and at most 1 |
+
+**Failure policy:** the service returns `204` for allowed requests, `403` for
+denied requests, and `503` for detector errors or invalid proxy IP metadata.
+Nginx treats service errors, connection failures, and timeouts as authorization
+errors and returns `500` without contacting the app, in both modes. The example
+sets a one-second connect timeout and three-second send/read timeouts. Do not
+add an inherited `error_page` fallback or `satisfy any` rule that bypasses this
+policy. Verdicts are not cached.
+
+**Trusted inputs:** Nginx replaces the private client-IP header with
+`$remote_addr` and sends only the UA, language, and Client Hints/Fetch Metadata
+headers to detection. It does not send cookies, authorization headers, or
+request bodies. If a load balancer or CDN sits in front of Nginx, configure
+[`set_real_ip_from` and `real_ip_header`](https://nginx.org/en/docs/http/ngx_http_realip_module.html)
+for those trusted proxies before using this configuration. Never trust arbitrary
+`X-Forwarded-For` values. Request headers remain spoofable detection inputs.
+
+This minimal integration does not capture JA3/JA4, verify crawlers, or accept
+client-reported browser verdicts/timezones. To add TLS or crawler verification,
+extend the service context with values supplied by trusted infrastructure.
+Verified crawlers are not automatically exempt from the package's bot-UA signal;
+apply an explicit verified-crawler policy if your site permits them, never a
+UA-only allowlist. Protect selected routes by placing `auth_request` in those
+locations; different thresholds can use separate service instances. Instant and
+behavioral checks still require browser JavaScript and an additional challenge
+or beacon integration.
+
+Run `npm run test:nginx` to exercise the service and actual Nginx proxy. These
+tests require an installed Nginx binary (`NGINX_BIN=/path/to/nginx` overrides its
+location), use temporary configuration and ports, and are included in
+`npm run check` and Linux CI.
+
 ---
 
 ## Signals
