@@ -55,3 +55,7 @@ export type {
   UserAgentFamily,
 } from "./server/index.js";
 export { VERSION } from "./version.js";
+
+export * from "./server/identification/index.js";
+export { DEVICE_COMPONENT_NAMES } from "./identification/types.js";
+export type { DeviceSignalsPayload, DeviceComponents } from "./identification/types.js";

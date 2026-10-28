@@ -244,6 +244,80 @@ Bundled IP data is refreshed weekly. Run locally: `npm run update:ip-data`.
 
 ---
 
+## Device intelligence (identification + Smart Signals)
+
+A self-hosted alternative to commercial device-identification APIs: a
+persistent `visitorId` per device, Smart Signals, velocity and a 0–100 suspect
+score, computed on **your** server and stored in **your** database.
+
+```ts
+// browser
+import { identify } from "bot-signal/browser";
+const { visitorId, eventId } = await identify(window, { endpoint: "/api/identify" });
+```
+
+```ts
+// server: app/api/identify/route.ts (Next.js), Hono, Bun, Deno… any Fetch runtime
+import { createDeviceIntelligence, createIdentifyHandler } from "bot-signal/server";
+
+const intel = createDeviceIntelligence({ salt: process.env.BOT_SIGNAL_SALT! });
+export const POST = createIdentifyHandler(intel, { trustProxyHeader: "x-forwarded-for" });
+
+// later, in your signup/login/checkout handler: decide on the server, never in the browser
+const event = await intel.getEvent(eventIdFromClient);
+if (event?.smartSignals.suspectScore >= 50) requireStepUp();
+```
+
+**How identification works.** The browser collects 18 components (canvas and
+audio rendering, WebGL, fonts, math precision, screen, locale, hardware…)
+and hashes the high-entropy ones. The server re-keys every component with
+your secret `salt` (HMAC-SHA-256) and matches it against known visitors with
+weighted similarity, so a browser update, new font or second monitor does
+not create a new visitor. A first-party token (localStorage + cookie) gives an
+exact match when present; when it is cleared, the fingerprint recovers the
+same `visitorId`. A copied token cannot take over another device's identity:
+the device must still roughly match.
+
+**Event fields**
+
+| Field | Meaning |
+|---|---|
+| `visitorId`, `confidence` (0–1), `matchedBy` | `storage`, `fingerprint` or `new`; confidence drops when identical devices are indistinguishable |
+| `smartSignals.bot` | `bad` / `good` (verified crawler) / `notDetected`, automation kind, server + client scores |
+| `smartSignals.vpn`, `proxy`, `ipBlocklist`, `ipInfo` | Timezone mismatch, iCloud Private Relay, datacenter and abuse-listed IPs |
+| `smartSignals.incognito`, `privacyBrowser`, `virtualMachine`, `tampering` | Client heuristics (Brave, Firefox resistFingerprinting, hypervisor GPUs, rewritten browser APIs) |
+| `smartSignals.velocity` | 5 m / 1 h / 24 h counts: events, distinct IPs, countries, `linkedId`s per visitor; distinct visitors per IP |
+| `smartSignals.highActivity`, `suspectScore` | Activity over `highActivityThreshold`; additive 0–100 risk score (`SUSPECT_SCORE_WEIGHTS`) |
+
+**Server API:** `getEvent`, `searchEvents({ visitorId, ip, linkedId, since, limit })`,
+`getVisitor`, `deleteVisitor` (erasure), `onEvent` (webhooks/queues),
+`sealKey` (AES-256-GCM sealed results the browser can forward but cannot read
+or alter; `unsealResult` on the receiving backend).
+
+**Storage.** `MemoryVisitorStore` (default; retention and size limits) suits
+development and single-instance apps. Implement the async `VisitorStore`
+interface for Postgres, Redis or any database when you run several instances.
+
+**Limits — read before enforcing.**
+
+- Fingerprints are probabilistic. Identical hardware with identical setups
+  (managed fleets, the same phone model) can share a fingerprint; the
+  `confidence` field reports this. Use `visitorId` for risk and rate limits,
+  not as proof of identity or for authentication.
+- Anti-fingerprinting browsers (Brave, Tor, Firefox resistFingerprinting,
+  Safari private windows) deliberately randomise components, so visitors
+  there are often new on each session. They are flagged, not penalised much.
+- Incognito detection is heuristic and changes as browsers update.
+- Client-reported Smart Signals are advisory; authoritative ones come from
+  the server (IP, TLS, headers). Only trust IP and TLS headers your own edge
+  sets.
+- **Privacy law.** Device fingerprinting processes personal data. In the EU,
+  fraud prevention and security are commonly argued as legitimate interest,
+  but consent requirements under ePrivacy vary by country and use case. Use
+  identification for security, not ad tracking, document your basis, honour
+  `deleteVisitor` requests and choose a retention period. The per-deployment
+  salt keeps IDs unlinkable across sites by design.
+
 ## Signals
 
 ### Instant (weighted)
@@ -652,7 +726,7 @@ layer to trade friction for coverage.
 Weekly (Mondays 04:00 UTC). Run `npm run update:ip-data` locally anytime.
 
 **Works without bundlers?**
-Yes — ESM + CJS + types, plus a global IIFE build on unpkg/jsdelivr (`DetectBotClient.*`).
+Yes — ESM + CJS + types, plus a global IIFE build on unpkg/jsdelivr (`BotSignal.*`).
 
 **Why does headless Chrome fail the WebGL check?**
 Chromium 139+ removed the software WebGL fallback, so GPU-less headless

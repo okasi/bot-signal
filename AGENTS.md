@@ -11,6 +11,8 @@ TypeScript npm library with three detection layers:
 | Instant (browser) | `detectInstantClient` | `src/detectInstantClient.ts`, `src/checks.ts`, `src/asyncChecks.ts`, `src/webgpu.ts` |
 | Behavioral (browser) | `createBehavioralClientDetector` | `src/behavioral/` |
 | Server (Node) | `detectServerClientAsync` | `src/server/` |
+| Identification (browser) | `collectDeviceSignals`, `identify` | `src/identification/` |
+| Identification (server) | `createDeviceIntelligence`, `createIdentifyHandler` | `src/server/identification/` |
 
 `src/automation.ts` contains the shared best-effort attribution result types.
 Instant and server results expose `automation` (`kind`, confidence, evidence,
@@ -51,6 +53,9 @@ src/
     tls.ts                    # JA3 blocklist + UA mismatch
     timezone.ts               # TZ offset + accept-language checks
     types.ts
+  identification/             # browser: components (canvas/audio/webgl/fonts…), smart signals, identify() client
+    hash.ts                   # isomorphic hash64 for in-page component hashing
+  server/identification/      # server: payload validation, HMAC digests + fuzzy matching, store, velocity, suspect score, sealing, Fetch handler
 data/                         # bundled blocklists (shipped in npm package)
 docs/                         # GitHub Pages demo source (index.html + app.js)
 scripts/build-site.ts         # builds .pages/ with dist/browser.js + stamped asset URLs
@@ -149,6 +154,22 @@ Anything a browser's fingerprint protection is free to rewrite — locale,
 `hardwareConcurrency`, UA strings, colour depth — is too soft to judge a client
 on. Build cross-realm and consistency checks on values protection does not
 touch.
+
+## Device identification
+
+- The browser payload is untrusted: `parseDevicePayload` strictly validates
+  shape and size before anything else runs. Keep it that way for new fields.
+- Components are re-keyed server-side with the deployment `salt`
+  (HMAC-SHA-256); never store raw component values.
+- Matching = weighted similarity (`COMPONENT_WEIGHTS`) over candidates found
+  via `INDEX_GROUPS`; a match needs `MIN_COMPARABLE_WEIGHT` of shared evidence
+  and `matchThreshold` similarity. A storage token only matches when the device
+  also clears `tokenMatchThreshold`.
+- Adding a component: add it to `DEVICE_COMPONENT_NAMES`, a reader in
+  `components.ts`, a weight in `COMPONENT_WEIGHTS`, and tests. Only add
+  components measured stable across reloads and origins in a real browser.
+- `node:crypto` lives only under `src/server/`; the browser bundle must stay
+  free of Node imports.
 
 ## IP blocklists
 
