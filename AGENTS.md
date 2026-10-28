@@ -11,8 +11,9 @@ TypeScript npm library with three detection layers:
 | Instant (browser) | `detectInstantClient` | `src/detectInstantClient.ts`, `src/checks.ts`, `src/asyncChecks.ts`, `src/webgpu.ts` |
 | Behavioral (browser) | `createBehavioralClientDetector` | `src/behavioral/` |
 | Server (Node) | `detectServerClientAsync` | `src/server/` |
-| Identification (browser) | `collectDeviceSignals`, `identify` | `src/identification/` |
-| Identification (server) | `createDeviceIntelligence`, `createIdentifyHandler` | `src/server/identification/` |
+| Identification + protect (browser) | `collectDeviceSignals`, `identify`, `protect`, `solveChallenge` | `src/identification/` |
+| Identification engine (any runtime) | `createDeviceIntelligence`, `createIdentifyHandler`, `decide`, challenges, tokens | `src/engine/` |
+| Node wrapper | `createDeviceIntelligence` defaulting to `detectServerClientAsync` | `src/server/deviceIntelligence.ts` |
 
 `src/automation.ts` contains the shared best-effort attribution result types.
 Instant and server results expose `automation` (`kind`, confidence, evidence,
@@ -21,7 +22,8 @@ and alternatives); stealth framework names are probabilistic, not definitive.
 bot/HTTP-client/automation User-Agent token parsing.
 
 Entry points: `src/index.ts` (full API), `src/browser.ts` (browser-only),
-`src/server.ts` (server-only). The package.json `exports` map routes the root
+`src/server.ts` (server-only, Node), `src/edge.ts` (engine + portable
+`detectServerClient`, WebCrypto only). The package.json `exports` map routes the root
 import to the browser build under the `browser` condition so browser bundlers
 never see `node:fs`. `src/version.ts` provides `VERSION`. Build output: `dist/` (tsup — ESM + CJS + IIFE
 `browser.global.js` for CDNs).
@@ -53,12 +55,19 @@ src/
     tls.ts                    # JA3 blocklist + UA mismatch
     timezone.ts               # TZ offset + accept-language checks
     types.ts
-  identification/             # browser: components (canvas/audio/webgl/fonts…), smart signals, identify() client
+  edge.ts                     # edge entry (engine + portable request scoring, no Node built-ins)
+  identification/             # browser: components (canvas/audio/webgl/fonts…), smart signals, identify() / protect() client
     hash.ts                   # isomorphic hash64 for in-page component hashing
-  server/identification/      # server: payload validation, HMAC digests + fuzzy matching, store, velocity, suspect score, sealing, Fetch handler
+    sha256.ts                 # pure-JS SHA-256 + leadingZeroBits (shared by solver and verifier)
+    challenge.ts              # solveChallenge: batched proof-of-work, yields to the event loop
+  engine/                     # identification engine, WebCrypto only: payload validation, HMAC digests + fuzzy matching,
+                              # store (consumeOnce), velocity, suspect score, decide/policies, challenges, tokens, sealing, Fetch handler
+  server/scoreCore.ts         # sync detectServerClient (no GeoIP/IP-list imports; safe for edge)
+  server/scoring.ts           # re-exports scoreCore + detectServerClientAsync (enrichment)
+  server/deviceIntelligence.ts # Node createDeviceIntelligence (defaults to detectServerClientAsync)
 data/                         # bundled blocklists (shipped in npm package)
 docs/                         # GitHub Pages demo source (index.html + app.js)
-scripts/build-site.ts         # builds .pages/ with dist/browser.js + stamped asset URLs
+scripts/build-site.ts         # builds .pages/ with dist/browser.js + dist/edge.js (in-tab demo engine) + stamped asset URLs
 scripts/update-ip-data.ts     # fetches and writes data/*.csv
 test/                         # vitest unit + patchright and playwright browser tests
   fixtures/harness.html         # DOM fixtures for browser tests
@@ -168,8 +177,17 @@ touch.
 - Adding a component: add it to `DEVICE_COMPONENT_NAMES`, a reader in
   `components.ts`, a weight in `COMPONENT_WEIGHTS`, and tests. Only add
   components measured stable across reloads and origins in a real browser.
-- `node:crypto` lives only under `src/server/`; the browser bundle must stay
-  free of Node imports.
+- `src/engine/` uses WebCrypto (`crypto.subtle`) only — never import `node:*`
+  there or from `src/server/scoreCore.ts`; `dist/edge.js`, `dist/browser.js`
+  and `dist/browser.global.js` must stay free of Node imports.
+- Secrets for tokens and challenges are derived from the `salt` with
+  `deriveSecret(salt, purpose)`; never reuse the raw salt as a key.
+- Challenges and tokens are HMAC-signed, expiring and single-use via
+  `VisitorStore.consumeOnce`. Database stores must implement it atomically.
+- Decision reasons stay server-side: the Fetch handler never returns them.
+- The demo (`docs/`) runs the real engine in the tab from `edge.js`; keep the
+  ids the Playwright demo test relies on (`#instant-banner`,
+  `#hero-verdict-text`, `#copy-detection`, `#device-visitor-id`, `#device-log`).
 
 ## IP blocklists
 

@@ -1,9 +1,12 @@
-import type { AutomationKind } from "../../automation.js";
-import type { PrivacyBrowserKind } from "../../identification/types.js";
+import type { AutomationKind } from "../automation.js";
+import type { PrivacyBrowserKind } from "../identification/types.js";
 import type {
   ServerClientContext,
   ServerDetectorOptions,
-} from "../types.js";
+} from "../server/types.js";
+import type { ServerClientResult } from "../server/types.js";
+import type { Challenge, ChallengeFailure, TokenClaims, TokenFailure } from "./challenge.js";
+import type { Decision, DecisionPolicy } from "./decide.js";
 import type { ComponentDigests } from "./matching.js";
 
 export interface VisitorRecord {
@@ -111,6 +114,12 @@ export interface VisitorStore {
   getEvent(eventId: string): Promise<IdentificationEvent | undefined>;
   /** Removes the visitor and all their events. */
   deleteVisitor(visitorId: string): Promise<boolean>;
+  /**
+   * Atomically records `key` until `expiresAt`. Returns `true` the first time,
+   * `false` if it was already recorded — used to make challenges and tokens
+   * single-use. Database stores should use an atomic insert (e.g. SET NX).
+   */
+  consumeOnce(key: string, expiresAt: number): Promise<boolean>;
 }
 
 export interface DeviceIntelligenceOptions {
@@ -127,8 +136,20 @@ export interface DeviceIntelligenceOptions {
   tokenMatchThreshold?: number;
   /** Events per visitor in 24 h that count as high activity. Default 200. */
   highActivityThreshold?: number;
-  /** Options forwarded to `detectServerClientAsync`. */
+  /** Options forwarded to server-side request scoring. */
   serverDetection?: ServerDetectorOptions;
+  /**
+   * Server-side request scorer. `bot-signal/server` defaults to
+   * `detectServerClientAsync` (GeoIP + bundled IP lists); `bot-signal/edge`
+   * defaults to the portable `detectServerClient`.
+   */
+  detectServer?: (context: ServerClientContext) => ServerClientResult | Promise<ServerClientResult>;
+  /** Per-action overrides of the built-in policies, e.g. `{ signup: { challengeAt: 20 } }`. */
+  policies?: Partial<Record<string, Partial<DecisionPolicy>>>;
+  /** Verification token lifetime. Default 5 minutes. */
+  tokenTtlMs?: number;
+  /** Challenge lifetime. Default 2 minutes. */
+  challengeTtlMs?: number;
   /** 32-byte key (base64 or Buffer). When set, results include an AES-256-GCM sealed copy. */
   sealKey?: string | Uint8Array;
   /** Called after each event is stored, e.g. to forward to a webhook or queue. */
@@ -145,6 +166,8 @@ export interface IdentifyInput {
   linkedId?: string;
   tag?: Record<string, string | number | boolean>;
   url?: string;
+  /** What the visitor is doing: `signup`, `login`, `checkout`, `content`, `api` or your own. Default `default`. */
+  action?: string;
 }
 
 export interface IdentifyResult {
@@ -153,4 +176,20 @@ export interface IdentifyResult {
   storageToken: string;
   /** AES-256-GCM sealed event when `sealKey` is configured, else `null`. */
   sealedResult: string | null;
+  action: string;
+  decision: Decision;
+  /** Why the decision was made. For logs, not for the visitor. */
+  reasons: string[];
+  /** Signed, single-use verification token when `decision` is `allow`. */
+  token: string | null;
+  /** Proof-of-work challenge when `decision` is `challenge`. */
+  challenge: Challenge | null;
 }
+
+export type ChallengeVerification =
+  | { valid: true; reason: null; token: string }
+  | { valid: false; reason: ChallengeFailure; token: null };
+
+export type TokenVerification =
+  | { valid: true; reason: null; claims: TokenClaims; event: IdentificationEvent | null }
+  | { valid: false; reason: TokenFailure; claims: null; event: null };

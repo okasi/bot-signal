@@ -1,8 +1,7 @@
-import { randomBytes } from "node:crypto";
-import type { AutomationKind } from "../../automation.js";
-import type { DeviceSignalsPayload } from "../../identification/types.js";
-import { detectServerClientAsync } from "../scoring.js";
-import type { ServerClientContext, ServerClientResult } from "../types.js";
+import type { AutomationKind } from "../automation.js";
+import type { DeviceSignalsPayload } from "../identification/types.js";
+import { detectServerClient } from "../server/scoreCore.js";
+import type { ServerClientContext, ServerClientResult } from "../server/types.js";
 import {
   buildIndexKeys,
   compareDigests,
@@ -13,12 +12,25 @@ import {
 import { MemoryVisitorStore } from "./memoryStore.js";
 import { parseDevicePayload } from "./payload.js";
 import { sealResult } from "./seal.js";
+import {
+  checkChallengeSolution,
+  checkToken,
+  createChallenge,
+  signToken,
+  type ChallengeFailure,
+  type TokenClaims,
+  type TokenFailure,
+} from "./challenge.js";
+import { deriveSecret, randomId } from "./crypto.js";
+import { decide, resolvePolicy } from "./decide.js";
 import type {
   DeviceIntelligenceOptions,
   EventQuery,
   IdentificationEvent,
   IdentifyInput,
   IdentifyResult,
+  ChallengeVerification,
+  TokenVerification,
   MatchMethod,
   SmartSignals,
   VelocitySignals,
@@ -71,17 +83,24 @@ export const SUSPECT_SCORE_WEIGHTS = {
 } as const;
 
 export interface DeviceIntelligence {
-  /** Identifies the device behind a request and stores the event. */
+  /**
+   * Identifies the device, stores the event and decides allow / challenge /
+   * block for `input.action`. Returns a verification token when allowed and
+   * a proof-of-work challenge when the visitor must prove work first.
+   */
   identify(input: IdentifyInput): Promise<IdentifyResult>;
+  /** Verifies a solved challenge (single use) and issues a verification token. */
+  verifyChallenge(solution: unknown): Promise<ChallengeVerification>;
+  /**
+   * Server-side check of the token your form/API receives: signature,
+   * expiry, action and single use. The CAPTCHA `siteverify` equivalent.
+   */
+  verifyToken(token: unknown, options?: { action?: string }): Promise<TokenVerification>;
   getEvent(eventId: string): Promise<IdentificationEvent | undefined>;
   searchEvents(query: EventQuery): Promise<IdentificationEvent[]>;
   getVisitor(visitorId: string): Promise<VisitorRecord | undefined>;
   /** Deletes a visitor and all their events (GDPR erasure). */
   deleteVisitor(visitorId: string): Promise<boolean>;
-}
-
-function randomId(bytes: number): string {
-  return randomBytes(bytes).toString("base64url");
 }
 
 function unique<T>(values: T[]): T[] {
@@ -259,17 +278,28 @@ export function createDeviceIntelligence(
   const matchThreshold = options.matchThreshold ?? 0.85;
   const tokenThreshold = options.tokenMatchThreshold ?? 0.5;
   const highActivityThreshold = options.highActivityThreshold ?? 200;
+  const tokenTtlMs = options.tokenTtlMs ?? 5 * 60_000;
+  const challengeTtlMs = options.challengeTtlMs ?? 2 * 60_000;
+  const detectServer =
+    options.detectServer ??
+    ((context: ServerClientContext) => detectServerClient(context, options.serverDetection));
+  const secrets = Promise.all([
+    deriveSecret(options.salt, "token"),
+    deriveSecret(options.salt, "challenge"),
+  ]);
+
+  async function issueToken(claims: Omit<TokenClaims, "expiresAt" | "nonce">): Promise<string> {
+    const [tokenSecret] = await secrets;
+    return signToken(tokenSecret, { ...claims, expiresAt: now() + tokenTtlMs, nonce: randomId(9) });
+  }
 
   async function identify(input: IdentifyInput): Promise<IdentifyResult> {
     const payload = parseDevicePayload(input.payload);
     const timestamp = now();
-    const digests = digestComponents(payload.components, options.salt);
+    const digests = await digestComponents(payload.components, options.salt);
     const match = await findMatch(store, payload, digests, matchThreshold, tokenThreshold);
 
-    const server = await detectServerClientAsync(
-      mergeRequestContext(input.request, payload),
-      options.serverDetection,
-    );
+    const server = await detectServer(mergeRequestContext(input.request, payload));
     const ip = server.context.clientIp ?? null;
     const country = server.context.ipCountry ?? null;
     const linkedId = input.linkedId ?? null;
@@ -358,15 +388,85 @@ export function createDeviceIntelligence(
     await store.addEvent(event);
     await options.onEvent?.(event);
 
+    const action = input.action ?? "default";
+    const verdict = decide(event, resolvePolicy(action, options.policies));
+    const [, challengeSecret] = await secrets;
+
     return {
       event,
       storageToken,
-      sealedResult: options.sealKey ? sealResult(event, options.sealKey) : null,
+      sealedResult: options.sealKey ? await sealResult(event, options.sealKey) : null,
+      action,
+      decision: verdict.decision,
+      reasons: verdict.reasons,
+      token:
+        verdict.decision === "allow"
+          ? await issueToken({ eventId: event.eventId, visitorId, action, decision: "allow", challengePassed: false })
+          : null,
+      challenge:
+        verdict.decision === "challenge"
+          ? await createChallenge(challengeSecret, {
+              eventId: event.eventId,
+              action,
+              difficulty: verdict.difficulty,
+              ttlMs: challengeTtlMs,
+              now: timestamp,
+            })
+          : null,
+    };
+  }
+
+  async function verifyChallenge(solution: unknown): Promise<ChallengeVerification> {
+    const [, challengeSecret] = await secrets;
+    const checked = await checkChallengeSolution(challengeSecret, solution, now());
+    if (!checked.ok) {
+      return { valid: false, reason: checked.reason, token: null };
+    }
+    const { challenge } = checked;
+    if (!(await store.consumeOnce(`challenge:${challenge.salt}`, challenge.expiresAt))) {
+      return { valid: false, reason: "replayed" satisfies ChallengeFailure, token: null };
+    }
+    const event = await store.getEvent(challenge.eventId);
+    if (!event) {
+      return { valid: false, reason: "expired", token: null };
+    }
+    return {
+      valid: true,
+      reason: null,
+      token: await issueToken({
+        eventId: event.eventId,
+        visitorId: event.visitorId,
+        action: challenge.action,
+        decision: "allow",
+        challengePassed: true,
+      }),
+    };
+  }
+
+  async function verifyToken(
+    token: unknown,
+    verifyOptions: { action?: string } = {},
+  ): Promise<TokenVerification> {
+    const [tokenSecret] = await secrets;
+    const checked = await checkToken(tokenSecret, token, verifyOptions.action, now());
+    if (!checked.ok) {
+      return { valid: false, reason: checked.reason, claims: null, event: null };
+    }
+    if (!(await store.consumeOnce(`token:${checked.claims.nonce}`, checked.claims.expiresAt))) {
+      return { valid: false, reason: "replayed" satisfies TokenFailure, claims: null, event: null };
+    }
+    return {
+      valid: true,
+      reason: null,
+      claims: checked.claims,
+      event: (await store.getEvent(checked.claims.eventId)) ?? null,
     };
   }
 
   return {
     identify,
+    verifyChallenge,
+    verifyToken,
     getEvent: (eventId) => store.getEvent(eventId),
     searchEvents: (query) => store.queryEvents(query),
     getVisitor: (visitorId) => store.getVisitor(visitorId),

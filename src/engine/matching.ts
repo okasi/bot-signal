@@ -1,9 +1,9 @@
-import { createHmac } from "node:crypto";
+import { hmac } from "./crypto.js";
 import {
   DEVICE_COMPONENT_NAMES,
   type DeviceComponentName,
   type DeviceComponents,
-} from "../../identification/types.js";
+} from "../identification/types.js";
 
 /** Salted per-component digests. Raw values are never stored. */
 export type ComponentDigests = Partial<Record<DeviceComponentName, string>>;
@@ -48,21 +48,20 @@ const INDEX_GROUPS: ReadonlyArray<readonly DeviceComponentName[]> = [
 /** Minimum total weight two payloads must share before similarity is meaningful. */
 export const MIN_COMPARABLE_WEIGHT = 10;
 
-function digest(salt: string, label: string, value: string): string {
-  return createHmac("sha256", salt).update(`${label}\u0000${value}`).digest("base64url").slice(0, 22);
-}
-
-export function digestComponents(
+/** Re-keys every present component with the deployment salt (HMAC-SHA-256, 128-bit truncation). */
+export async function digestComponents(
   components: DeviceComponents,
   salt: string,
-): ComponentDigests {
+): Promise<ComponentDigests> {
   const digests: ComponentDigests = {};
-  for (const name of DEVICE_COMPONENT_NAMES) {
-    const value = components[name];
-    if (value !== null) {
-      digests[name] = digest(salt, name, value);
-    }
-  }
+  await Promise.all(
+    DEVICE_COMPONENT_NAMES.map(async (name) => {
+      const value = components[name];
+      if (value !== null) {
+        digests[name] = (await hmac(salt, `${name}\u0000${value}`)).slice(0, 22);
+      }
+    }),
+  );
   return digests;
 }
 

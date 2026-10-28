@@ -149,4 +149,5 @@ export type {
 export { VERSION } from "./version.js";
 
 export * from "./identification/index.js";
-export * from "./server/identification/index.js";
+export * from "./engine/index.js";
+export { createDeviceIntelligence } from "./server/deviceIntelligence.js";

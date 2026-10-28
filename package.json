@@ -23,6 +23,9 @@
       ],
       "server": [
         "./dist/server.d.ts"
+      ],
+      "edge": [
+        "./dist/edge.d.ts"
       ]
     }
   },
@@ -78,6 +81,16 @@
       "require": {
         "types": "./dist/server.d.cts",
         "default": "./dist/server.cjs"
+      }
+    },
+    "./edge": {
+      "import": {
+        "types": "./dist/edge.d.ts",
+        "default": "./dist/edge.js"
+      },
+      "require": {
+        "types": "./dist/edge.d.cts",
+        "default": "./dist/edge.cjs"
       }
     },
     "./package.json": "./package.json"

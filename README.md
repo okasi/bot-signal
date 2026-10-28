@@ -4,10 +4,12 @@
 
 # bot-signal
 
-**Bot detection for JavaScript and Node.js — detect headless Chrome, Playwright, Puppeteer, Selenium and scripted input.**
+**Self-hosted device intelligence and bot protection for JavaScript — an open-source alternative to Fingerprint and a drop-in replacement for CAPTCHAs.**
 
-`bot-signal` is an open-source, TypeScript-first bot detection library that scores three
-independent layers: **instant** browser checks (automation artifacts, native tampering,
+`bot-signal` gives every visitor a persistent `visitorId` that survives cookie wipes,
+decides **allow / challenge / block** per action, and lets real people through with an
+invisible proof-of-work instead of a puzzle. Under the hood it scores three
+independent detection layers: **instant** browser checks (automation artifacts, native tampering,
 cross-realm and GPU contradictions, CDP), **behavioral** analysis of mouse, touch, scroll and
 typing, and **server-side** IP reputation, TLS/JA3 fingerprint and timezone validation. Start
 with one `isHuman()` call, or read every weighted signal yourself. No API keys, no external
@@ -19,7 +21,7 @@ service, no data leaves your infrastructure.
 [![CI](https://github.com/okasi/bot-signal/actions/workflows/ci.yml/badge.svg)](https://github.com/okasi/bot-signal/actions/workflows/ci.yml)
 [![IP data updates](https://github.com/okasi/bot-signal/actions/workflows/update-ip-data.yml/badge.svg)](https://github.com/okasi/bot-signal/actions/workflows/update-ip-data.yml)
 
-[Quick start](#quick-start) · [Detection modes](#detection-modes) · [Signals](#signals) · [API](#api) · [Examples](#examples) · [FAQ](#faq)
+[Quick start](#quick-start) · [Replace your CAPTCHA](#replace-your-captcha-protect--verifytoken) · [Device intelligence](#device-intelligence-identification--smart-signals) · [Detection modes](#detection-modes) · [Signals](#signals) · [API](#api) · [Examples](#examples) · [FAQ](#faq)
 
 </div>
 
@@ -29,10 +31,12 @@ service, no data leaves your infrastructure.
 
 Most bot-detection snippets are copy-pasted checks that rot quickly. The `bot-signal` package gives you a maintained, typed, testable toolkit that covers the full stack:
 
-**[Live demo](https://okasi.github.io/bot-signal/)** — run instant and behavioral checks in your browser.
+**[Live demo](https://okasi.github.io/bot-signal/)** — see your own visitor ID survive a cookie wipe, submit a CAPTCHA-free signup as a human, an account farm and a script, and run every detection check against your browser.
 
 | Layer | Runs where | Catches |
 |-------|------------|---------|
+| **Device intelligence** | Browser + your server/edge | Returning devices after cookie wipes, multi-accounting, velocity, incognito, VMs, tampering |
+| **Protect** | Browser + your server/edge | Bots and abuse at signup, login, checkout, content and API — without a CAPTCHA |
 | **Instant** | Browser (sync/async) | Automation artifacts, native tampering, realm/UA/GPU inconsistencies, CDP |
 | **Behavioral** | Browser (over time) | Robotic mouse/scroll/typing, synthetic events |
 | **Server** | Node >= 22 | Datacenter IPs, AbuseIPDB, TLS fingerprint mismatch, timezone spoofing |
@@ -98,7 +102,8 @@ if (!result.isLegitClient) {
 |--------|----------|---------|
 | `bot-signal` | Everything (browser build in browser bundlers) + `isHuman()` | Browser + Node |
 | `bot-signal/browser` | Instant + behavioral only | Browser |
-| `bot-signal/server` | Server detection only | Node ≥ 22 |
+| `bot-signal/server` | Server detection + device intelligence (GeoIP, bundled IP lists) | Node ≥ 22 |
+| `bot-signal/edge` | Device intelligence + portable request scoring, WebCrypto only, no Node built-ins | Cloudflare Workers, Vercel Edge, Deno, Bun, browsers |
 
 No bundler? Load the global build from a CDN:
 
@@ -244,6 +249,85 @@ Bundled IP data is refreshed weekly. Run locally: `npm run update:ip-data`.
 
 ---
 
+## Replace your CAPTCHA (`protect` + `verifyToken`)
+
+Two calls. The browser identifies the device and gets a single-use token; your
+server decides per action whether to **allow**, silently **challenge** with a
+signed proof-of-work, or **block**. Real people never see a puzzle.
+
+```ts
+// browser
+import { protect } from "bot-signal/browser";
+
+const { token, decision } = await protect(window, {
+  endpoint: "/api/bot-signal",
+  action: "signup",        // signup | login | checkout | content | api | your own
+  linkedId: email,         // optional: powers multi-accounting velocity
+});
+await fetch("/signup", { method: "POST", body: JSON.stringify({ email, token }) });
+```
+
+```ts
+// server (Node) — or import from "bot-signal/edge" on Workers / Vercel Edge / Deno
+import { createDeviceIntelligence, createIdentifyHandler } from "bot-signal/server";
+
+export const intel = createDeviceIntelligence({
+  salt: process.env.BOT_SIGNAL_SALT!,
+  policies: { signup: { challengeAt: 20 } },   // optional overrides
+});
+// serves /api/bot-signal, including challenge solutions; use a header your own proxy sets
+export const POST = createIdentifyHandler(intel, { trustProxyHeader: "x-forwarded-for" });
+
+// in /signup
+const check = await intel.verifyToken(body.token, { action: "signup" });
+if (!check.valid) return new Response(null, { status: 403 }); // forged, expired, wrong action or replayed
+check.claims.visitorId;       // who
+check.claims.challengePassed; // whether they had to prove work
+check.event?.smartSignals;    // full event for your own rules
+```
+
+**Flow.** `protect()` posts device signals with the action. The engine
+identifies the device and runs `decide(event, policy)`: verified crawlers are
+allowed only where `allowVerifiedBots` is set, clear automation is blocked,
+the suspect score is compared to `challengeAt` / `blockAt`, and velocity
+limits (`maxAccountsPerDevice`, `maxDevicesPerIp`) trigger a challenge. A
+challenge is an HMAC-signed, expiring SHA-256 puzzle (16–22 leading zero bits,
+harder for riskier visitors) that the browser solves in batches without
+blocking the page, typically in well under a second. The solution is
+verified once; then a signed `bst1.` token is issued, valid for 5 minutes and
+consumable once.
+
+| Action | `challengeAt` | `blockAt` | Verified crawlers | Accounts / device (24 h) | Devices / IP (1 h) |
+|---|---|---|---|---|---|
+| `signup` | 25 | 70 | blocked | 2 | 15 |
+| `login` | 30 | 75 | blocked | 4 | 20 |
+| `checkout` | 20 | 60 | blocked | 3 | 20 |
+| `content` | 40 | 85 | allowed | 10 | 50 |
+| `api` | 35 | 80 | allowed | 10 | 50 |
+| other | 35 | 75 | allowed | 5 | 25 |
+
+`decide`, `resolvePolicy` and `DEFAULT_POLICIES` are exported, so you can
+unit-test your own policies. Reasons are returned to your server
+(`identify().reasons`) and never sent to the visitor.
+
+**What proof-of-work does and does not do.** It makes abuse at volume pay
+in CPU time and stops naive scripts that never run JavaScript. It does not
+stop one determined bot with a real browser; that is what the detection
+layers, velocity limits and blocking are for. Use a database `VisitorStore`
+with an atomic `consumeOnce` (for example Redis `SET NX` or a unique insert)
+when you run several instances, so tokens and challenges stay single-use.
+
+### Use cases
+
+| Problem | Pattern |
+|---|---|
+| Signup abuse, multi-accounting, promo farming | `protect({ action: "signup", linkedId: email })`, then check `velocity.distinctLinkedId` |
+| Credential stuffing, account takeover | `identify({ action: "login", linkedId })`; step up when `searchEvents({ linkedId })` has never seen this `visitorId` |
+| Checkout and payment fraud | `verifyToken(token, { action: "checkout" })`; route `tampering`, `vpn` or high `suspectScore` to 3-D Secure |
+| Scraping and content theft | `bot-signal/edge` middleware with `action: "content"`; verified crawlers pass |
+| Free-trial abuse, account sharing | one trial per `visitorId`; count distinct visitors per account |
+| API and form spam | send the `protect()` token as a header; verify before doing work |
+
 ## Device intelligence (identification + Smart Signals)
 
 A self-hosted alternative to commercial device-identification APIs: a
@@ -296,7 +380,20 @@ or alter; `unsealResult` on the receiving backend).
 
 **Storage.** `MemoryVisitorStore` (default; retention and size limits) suits
 development and single-instance apps. Implement the async `VisitorStore`
-interface for Postgres, Redis or any database when you run several instances.
+interface for Postgres, Redis or any database when you run several instances;
+`consumeOnce(key, expiresAt)` must be atomic.
+
+**Edge runtimes.** `bot-signal/edge` exports the same `createDeviceIntelligence`
+and `createIdentifyHandler`, built on WebCrypto with no Node built-ins. It
+scores requests with the portable `detectServerClient` (User-Agent, headers,
+client hints, TLS hash you pass in) instead of the bundled GeoIP and IP lists;
+pass your own `detectServer` to add them. All crypto APIs
+(`identify`, `verifyChallenge`, `verifyToken`, `sealResult`, `unsealResult`,
+`digestComponents`) are async on every runtime.
+
+**Accuracy.** Matching has unit tests and has been checked in real browsers
+(the same `visitorId` after clearing cookies and storage), but there is no
+published benchmark yet. Measure on your own traffic before you enforce.
 
 **Limits — read before enforcing.**
 

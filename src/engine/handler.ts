@@ -1,4 +1,4 @@
-import type { ServerClientContext } from "../types.js";
+import type { ServerClientContext } from "../server/types.js";
 import type { DeviceIntelligence } from "./identify.js";
 import { InvalidPayloadError } from "./payload.js";
 import type { IdentificationEvent } from "./types.js";
@@ -6,6 +6,7 @@ import type { IdentificationEvent } from "./types.js";
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_LINKED_ID_LENGTH = 256;
 const MAX_TAG_ENTRIES = 20;
+const ACTION_PATTERN = /^[a-z0-9_-]{1,32}$/i;
 
 export interface IdentifyHandlerOptions {
   /**
@@ -76,8 +77,12 @@ export function buildRequestContext(
 
 /**
  * Framework-agnostic `POST` handler (`Request` → `Response`) for Next.js
- * route handlers, Hono, Bun, Deno, Remix and anything else built on Fetch.
- * Pair it with `identify()` from `bot-signal/browser`.
+ * route handlers, Hono, Bun, Deno, Remix, Workers and anything on Fetch.
+ * Pair it with `protect()` or `identify()` from `bot-signal/browser`.
+ *
+ * Body `{ payload, action, linkedId?, tag?, url? }` → identify and decide.
+ * Body `{ solution }` → verify a solved challenge and issue a token.
+ * Decision reasons are never sent to the client.
  */
 export function createIdentifyHandler(
   intelligence: DeviceIntelligence,
@@ -97,7 +102,14 @@ export function createIdentifyHandler(
       return json(413, { error: "payload_too_large" });
     }
 
-    let body: { payload?: unknown; linkedId?: unknown; tag?: unknown; url?: unknown };
+    let body: {
+      payload?: unknown;
+      linkedId?: unknown;
+      tag?: unknown;
+      url?: unknown;
+      action?: unknown;
+      solution?: unknown;
+    };
     try {
       body = JSON.parse(text) as typeof body;
     } catch {
@@ -105,6 +117,13 @@ export function createIdentifyHandler(
     }
     if (typeof body !== "object" || body === null) {
       return json(400, { error: "invalid_json" });
+    }
+
+    if (body.solution !== undefined) {
+      const verified = await intelligence.verifyChallenge(body.solution);
+      return verified.valid
+        ? json(200, { decision: "allow", token: verified.token })
+        : json(403, { decision: "block", error: "challenge_failed" });
     }
 
     try {
@@ -115,6 +134,10 @@ export function createIdentifyHandler(
           typeof body.linkedId === "string" ? body.linkedId.slice(0, MAX_LINKED_ID_LENGTH) : undefined,
         tag: parseTag(body.tag),
         url: typeof body.url === "string" ? body.url.slice(0, 2048) : undefined,
+        action:
+          typeof body.action === "string" && ACTION_PATTERN.test(body.action)
+            ? body.action
+            : undefined,
       });
 
       return json(200, {
@@ -123,6 +146,9 @@ export function createIdentifyHandler(
         confidence: result.event.confidence,
         sealedResult: result.sealedResult,
         storageToken: result.storageToken,
+        decision: result.decision,
+        token: result.token,
+        challenge: result.challenge,
         ...options.exposeToClient?.(result.event),
       });
     } catch (error) {

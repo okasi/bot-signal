@@ -1,6 +1,7 @@
 import { getPropertySafely } from "../checks.js";
 import { detectInstantClient } from "../detectInstantClient.js";
 import type { ExtendedWindow } from "../types.js";
+import { solveChallenge, type ChallengeLike, type SolveOptions } from "./challenge.js";
 import { collectDeviceComponents } from "./components.js";
 import { collectClientSmartSignals } from "./smartSignals.js";
 import type { DeviceSignalsPayload } from "./types.js";
@@ -150,4 +151,98 @@ export async function identify(
     confidence: body.confidence,
     sealedResult: body.sealedResult ?? null,
   };
+}
+
+export type ProtectDecision = "allow" | "block";
+
+export interface ProtectOptions extends IdentifyClientOptions {
+  /** What the visitor is doing: `signup`, `login`, `checkout`, `content`, `api` or your own. */
+  action: string;
+  /** Proof-of-work tuning. */
+  solve?: SolveOptions;
+}
+
+export interface ProtectResult {
+  /** `allow` when a token was issued (directly or after a challenge), else `block`. */
+  decision: ProtectDecision;
+  /** Send this with your form/API call and check it server-side with `verifyToken`. */
+  token: string | null;
+  visitorId: string;
+  eventId: string;
+  confidence: number;
+  /** Whether the visitor had to solve an invisible proof-of-work challenge. */
+  challenged: boolean;
+  /** Milliseconds spent on the challenge, when one was required. */
+  solveMs: number | null;
+}
+
+interface EndpointResponse {
+  eventId: string;
+  visitorId: string;
+  confidence: number;
+  sealedResult?: string | null;
+  storageToken?: string;
+  decision?: "allow" | "challenge" | "block";
+  token?: string | null;
+  challenge?: ChallengeLike | null;
+}
+
+async function postJson(
+  doFetch: typeof fetch,
+  endpoint: string,
+  body: unknown,
+): Promise<{ ok: boolean; status: number; body: EndpointResponse }> {
+  const response = await doFetch(endpoint, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const parsed = response.ok || response.status === 403
+    ? ((await response.json()) as EndpointResponse)
+    : ({} as EndpointResponse);
+  return { ok: response.ok, status: response.status, body: parsed };
+}
+
+/**
+ * CAPTCHA replacement in one call: identifies the device, lets the server
+ * decide, transparently solves a proof-of-work challenge if asked, and
+ * returns a single-use token for your form or API request. No widget, no
+ * puzzles. A 403 counts as `block`; throws only on network/server errors.
+ */
+export async function protect(
+  context: ExtendedWindow,
+  options: ProtectOptions,
+): Promise<ProtectResult> {
+  const doFetch = options.fetch ?? fetch;
+  const payload = await collectDeviceSignals(context);
+  const first = await postJson(doFetch, options.endpoint, {
+    payload,
+    action: options.action,
+    linkedId: options.linkedId,
+    tag: options.tag,
+    url: context.location?.href,
+  });
+  // 403 is a block decision (custom endpoints often answer blocked traffic that way), not an outage.
+  if (!first.ok && first.status !== 403) {
+    throw new Error(`bot-signal protect failed: HTTP ${first.status}`);
+  }
+
+  const result = first.body;
+  if (result.storageToken) {
+    writeStorageToken(context, result.storageToken);
+  }
+  const base = { visitorId: result.visitorId, eventId: result.eventId, confidence: result.confidence };
+
+  if (result.decision === "challenge" && result.challenge) {
+    const solved = await solveChallenge(result.challenge, options.solve);
+    const second = await postJson(doFetch, options.endpoint, {
+      solution: { challenge: result.challenge, nonce: solved.nonce },
+    });
+    const token = second.ok ? (second.body.token ?? null) : null;
+    return { ...base, decision: token ? "allow" : "block", token, challenged: true, solveMs: solved.durationMs };
+  }
+
+  const token = result.decision === "allow" ? (result.token ?? null) : null;
+  return { ...base, decision: token ? "allow" : "block", token, challenged: false, solveMs: null };
 }

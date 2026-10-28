@@ -3,6 +3,7 @@ dist/
 coverage/
 .pages/
 docs/browser.js
+docs/edge.js
 *.log
 .DS_Store
 .claude

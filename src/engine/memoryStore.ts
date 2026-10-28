@@ -39,6 +39,7 @@ export class MemoryVisitorStore implements VisitorStore {
   private readonly keyIndex = new Map<string, Set<string>>();
   private readonly tokenIndex = new Map<string, string>();
   private events: IdentificationEvent[] = [];
+  private readonly consumed = new Map<string, number>();
   private readonly retentionMs: number;
   private readonly maxEvents: number;
   private readonly now: () => number;
@@ -119,6 +120,20 @@ export class MemoryVisitorStore implements VisitorStore {
     record.indexKeys.forEach((key) => removeFromIndex(this.keyIndex, key, visitorId));
     record.storageTokens.forEach((token) => this.tokenIndex.delete(token));
     this.visitors.delete(visitorId);
+    return true;
+  }
+
+  async consumeOnce(key: string, expiresAt: number): Promise<boolean> {
+    const current = this.now();
+    for (const [stored, expiry] of this.consumed) {
+      if (expiry < current) {
+        this.consumed.delete(stored);
+      }
+    }
+    if (this.consumed.has(key)) {
+      return false;
+    }
+    this.consumed.set(key, expiresAt);
     return true;
   }
 

@@ -35,6 +35,7 @@ import {
 import {
   collectDeviceSignals,
   identify,
+  protect,
   readStorageToken,
   STORAGE_TOKEN_KEY,
   writeStorageToken,
@@ -379,6 +380,66 @@ describe("collectDeviceSignals and identify", () => {
     expect((await identify(createWindow({ location: undefined }), { endpoint: "/x" })).sealedResult).toBe("s");
     globalThis.fetch = vi.fn().mockResolvedValue(new Response("", { status: 500 }));
     await expect(identify(createWindow(), { endpoint: "/x" })).rejects.toThrow(/HTTP 500/);
+    globalThis.fetch = original;
+  });
+});
+
+describe("protect", () => {
+  // Difficulty 1 with this salt is met at a small nonce, so the solver path runs quickly and deterministically.
+  const challenge = { algorithm: "sha256-leading-zero-bits" as const, salt: "s", difficulty: 1, expiresAt: 1, eventId: "e", action: "signup", signature: "sig" };
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+  const base = { eventId: "e", visitorId: "v", confidence: 0.9 };
+
+  it("returns the issued token for allowed visitors and stores the device token", async () => {
+    const context = createWindow();
+    const fetchMock = vi.fn().mockResolvedValue(json({ ...base, decision: "allow", token: "bst1.a.b", storageToken: TOKEN }));
+    const result = await protect(context, { endpoint: "/api/bot-signal", action: "signup", fetch: fetchMock });
+    expect(result).toEqual({ ...base, decision: "allow", token: "bst1.a.b", challenged: false, solveMs: null });
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toMatchObject({ action: "signup", url: "https://example.com/" });
+    expect(context.localStorage.getItem(STORAGE_TOKEN_KEY)).toBe(TOKEN);
+  });
+
+  it("solves challenges invisibly and exchanges the solution for a token", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json({ ...base, decision: "challenge", challenge }))
+      .mockResolvedValueOnce(json({ decision: "allow", token: "bst1.c.d" }));
+    const result = await protect(createWindow(), { endpoint: "/x", action: "signup", fetch: fetchMock, solve: { batchSize: 1 } });
+    expect(result).toMatchObject({ decision: "allow", token: "bst1.c.d", challenged: true });
+    expect(result.solveMs).toBeGreaterThanOrEqual(0);
+    expect(JSON.parse(fetchMock.mock.calls[1]![1].body).solution.challenge).toEqual(challenge);
+  });
+
+  it("blocks when the challenge is refused or returns no token", async () => {
+    const refused = vi
+      .fn()
+      .mockResolvedValueOnce(json({ ...base, decision: "challenge", challenge }))
+      .mockResolvedValueOnce(json({ decision: "block", error: "challenge_failed" }, 403));
+    expect(await protect(createWindow(), { endpoint: "/x", action: "login", fetch: refused })).toMatchObject({ decision: "block", token: null, challenged: true });
+    const empty = vi
+      .fn()
+      .mockResolvedValueOnce(json({ ...base, decision: "challenge", challenge }))
+      .mockResolvedValueOnce(json({ decision: "allow" }));
+    expect((await protect(createWindow(), { endpoint: "/x", action: "login", fetch: empty })).decision).toBe("block");
+  });
+
+  it("blocks without solving when the server blocks or omits a token", async () => {
+    const blocked = vi.fn().mockResolvedValue(json({ ...base, decision: "block", token: null, challenge: null }, 403));
+    expect(await protect(createWindow({ location: undefined }), { endpoint: "/x", action: "signup", fetch: blocked })).toEqual({
+      ...base,
+      decision: "block",
+      token: null,
+      challenged: false,
+      solveMs: null,
+    });
+    const missing = vi.fn().mockResolvedValue(json({ ...base, decision: "allow" }));
+    expect((await protect(createWindow(), { endpoint: "/x", action: "signup", fetch: missing })).decision).toBe("block");
+  });
+
+  it("uses global fetch and throws on server errors", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response("", { status: 500 }));
+    await expect(protect(createWindow(), { endpoint: "/x", action: "api" })).rejects.toThrow(/protect failed: HTTP 500/);
     globalThis.fetch = original;
   });
 });

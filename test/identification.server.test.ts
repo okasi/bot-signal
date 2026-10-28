@@ -96,22 +96,22 @@ describe("parseDevicePayload", () => {
 });
 
 describe("matching", () => {
-  it("salts digests so deployments cannot correlate visitors", () => {
-    const a = digestComponents(components(), SALT);
-    const b = digestComponents(components(), `${SALT}-other`);
+  it("salts digests so deployments cannot correlate visitors", async () => {
+    const a = await digestComponents(components(), SALT);
+    const b = await digestComponents(components(), `${SALT}-other`);
     expect(a.canvas).not.toBe(b.canvas);
     expect(compareDigests(a, b).score).toBe(0);
   });
 
-  it("skips null components in digests and index groups", () => {
-    const digests = digestComponents(components({ canvas: null }), SALT);
+  it("skips null components in digests and index groups", async () => {
+    const digests = await digestComponents(components({ canvas: null }), SALT);
     expect(digests.canvas).toBeUndefined();
     expect(buildIndexKeys(digests)).toHaveLength(2);
   });
 
-  it("weights matched and changed components", () => {
-    const a = digestComponents(components(), SALT);
-    const b = digestComponents(components({ screen: "other" }), SALT);
+  it("weights matched and changed components", async () => {
+    const a = await digestComponents(components(), SALT);
+    const b = await digestComponents(components({ screen: "other" }), SALT);
     const similarity = compareDigests(a, b);
     expect(similarity.changed).toEqual(["screen"]);
     expect(similarity.score).toBeGreaterThan(0.95);
@@ -122,17 +122,20 @@ describe("matching", () => {
 describe("sealResult", () => {
   const key = Buffer.alloc(32, 1);
 
-  it("round-trips and rejects tampering", () => {
-    const sealed = sealResult({ visitorId: "v" }, key);
-    expect(unsealResult(sealed, key.toString("base64"))).toEqual({ visitorId: "v" });
+  it("round-trips and rejects tampering", async () => {
+    const sealed = await sealResult({ visitorId: "v" }, key);
+    expect(await unsealResult(sealed, key.toString("base64"))).toEqual({ visitorId: "v" });
     const bytes = Buffer.from(sealed, "base64url");
     bytes[bytes.length - 1] ^= 1;
-    expect(() => unsealResult(bytes.toString("base64url"), key)).toThrow();
-    expect(() => unsealResult("AAAA", key)).toThrow(/malformed/);
+    await expect(unsealResult(bytes.toString("base64url"), key)).rejects.toThrow();
+    await expect(unsealResult("AAAA", key)).rejects.toThrow(/malformed/);
+    const wrongVersion = Buffer.from(sealed, "base64url");
+    wrongVersion[0] = 9;
+    await expect(unsealResult(wrongVersion.toString("base64url"), key)).rejects.toThrow(/malformed/);
   });
 
-  it("requires a 32-byte key", () => {
-    expect(() => sealResult({}, "c2hvcnQ=")).toThrow(/32 bytes/);
+  it("requires a 32-byte key", async () => {
+    await expect(sealResult({}, "c2hvcnQ=")).rejects.toThrow(/32 bytes/);
   });
 });
 
@@ -370,7 +373,9 @@ describe("createIdentifyHandler", () => {
     );
     expect(response.status).toBe(200);
     const body = (await response.json()) as Record<string, unknown>;
-    expect(Object.keys(body).sort()).toEqual(["confidence", "eventId", "sealedResult", "storageToken", "visitorId"]);
+    expect(Object.keys(body).sort()).toEqual(["challenge", "confidence", "decision", "eventId", "sealedResult", "storageToken", "token", "visitorId"]);
+    expect(body).not.toHaveProperty("reasons");
+    expect(body).not.toHaveProperty("smartSignals");
   });
 
   it("supports exposing extra fields and ignores non-object tags", async () => {

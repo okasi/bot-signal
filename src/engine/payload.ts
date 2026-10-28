@@ -4,7 +4,7 @@ import {
   type DeviceComponents,
   type DeviceSignalsPayload,
   type PrivacyBrowserKind,
-} from "../../identification/types.js";
+} from "../identification/types.js";
 
 export class InvalidPayloadError extends Error {
   constructor(message: string) {
