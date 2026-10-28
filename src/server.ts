@@ -55,3 +55,6 @@ export type {
   UserAgentFamily,
 } from "./server/index.js";
 export { VERSION } from "./version.js";
+
+export * from "./engine/index.js";
+export { createDeviceIntelligence } from "./server/deviceIntelligence.js";

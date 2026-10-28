@@ -11,6 +11,9 @@ TypeScript npm library with three detection layers:
 | Instant (browser) | `detectInstantClient` | `src/detectInstantClient.ts`, `src/checks.ts`, `src/asyncChecks.ts`, `src/webgpu.ts` |
 | Behavioral (browser) | `createBehavioralClientDetector` | `src/behavioral/` |
 | Server (Node) | `detectServerClientAsync` | `src/server/` |
+| Identification + protect (browser) | `collectDeviceSignals`, `identify`, `protect`, `solveChallenge` | `src/identification/` |
+| Identification engine (any runtime) | `createDeviceIntelligence`, `createIdentifyHandler`, `decide`, challenges, tokens | `src/engine/` |
+| Node wrapper | `createDeviceIntelligence` defaulting to `detectServerClientAsync` | `src/server/deviceIntelligence.ts` |
 
 `src/automation.ts` contains the shared best-effort attribution result types.
 Instant and server results expose `automation` (`kind`, confidence, evidence,
@@ -19,7 +22,8 @@ and alternatives); stealth framework names are probabilistic, not definitive.
 bot/HTTP-client/automation User-Agent token parsing.
 
 Entry points: `src/index.ts` (full API), `src/browser.ts` (browser-only),
-`src/server.ts` (server-only). The package.json `exports` map routes the root
+`src/server.ts` (server-only, Node), `src/edge.ts` (engine + portable
+`detectServerClient`, WebCrypto only). The package.json `exports` map routes the root
 import to the browser build under the `browser` condition so browser bundlers
 never see `node:fs`. `src/version.ts` provides `VERSION`. Build output: `dist/` (tsup — ESM + CJS + IIFE
 `browser.global.js` for CDNs).
@@ -51,9 +55,19 @@ src/
     tls.ts                    # JA3 blocklist + UA mismatch
     timezone.ts               # TZ offset + accept-language checks
     types.ts
+  edge.ts                     # edge entry (engine + portable request scoring, no Node built-ins)
+  identification/             # browser: components (canvas/audio/webgl/fonts…), smart signals, identify() / protect() client
+    hash.ts                   # isomorphic hash64 for in-page component hashing
+    sha256.ts                 # pure-JS SHA-256 + leadingZeroBits (shared by solver and verifier)
+    challenge.ts              # solveChallenge: batched proof-of-work, yields to the event loop
+  engine/                     # identification engine, WebCrypto only: payload validation, HMAC digests + fuzzy matching,
+                              # store (consumeOnce), velocity, suspect score, decide/policies, challenges, tokens, sealing, Fetch handler
+  server/scoreCore.ts         # sync detectServerClient (no GeoIP/IP-list imports; safe for edge)
+  server/scoring.ts           # re-exports scoreCore + detectServerClientAsync (enrichment)
+  server/deviceIntelligence.ts # Node createDeviceIntelligence (defaults to detectServerClientAsync)
 data/                         # bundled blocklists (shipped in npm package)
 docs/                         # GitHub Pages demo source (index.html + app.js)
-scripts/build-site.ts         # builds .pages/ with dist/browser.js + stamped asset URLs
+scripts/build-site.ts         # builds .pages/ with dist/browser.js + dist/edge.js (in-tab demo engine) + stamped asset URLs
 scripts/update-ip-data.ts     # fetches and writes data/*.csv
 test/                         # vitest unit + patchright and playwright browser tests
   fixtures/harness.html         # DOM fixtures for browser tests
@@ -149,6 +163,31 @@ Anything a browser's fingerprint protection is free to rewrite — locale,
 `hardwareConcurrency`, UA strings, colour depth — is too soft to judge a client
 on. Build cross-realm and consistency checks on values protection does not
 touch.
+
+## Device identification
+
+- The browser payload is untrusted: `parseDevicePayload` strictly validates
+  shape and size before anything else runs. Keep it that way for new fields.
+- Components are re-keyed server-side with the deployment `salt`
+  (HMAC-SHA-256); never store raw component values.
+- Matching = weighted similarity (`COMPONENT_WEIGHTS`) over candidates found
+  via `INDEX_GROUPS`; a match needs `MIN_COMPARABLE_WEIGHT` of shared evidence
+  and `matchThreshold` similarity. A storage token only matches when the device
+  also clears `tokenMatchThreshold`.
+- Adding a component: add it to `DEVICE_COMPONENT_NAMES`, a reader in
+  `components.ts`, a weight in `COMPONENT_WEIGHTS`, and tests. Only add
+  components measured stable across reloads and origins in a real browser.
+- `src/engine/` uses WebCrypto (`crypto.subtle`) only — never import `node:*`
+  there or from `src/server/scoreCore.ts`; `dist/edge.js`, `dist/browser.js`
+  and `dist/browser.global.js` must stay free of Node imports.
+- Secrets for tokens and challenges are derived from the `salt` with
+  `deriveSecret(salt, purpose)`; never reuse the raw salt as a key.
+- Challenges and tokens are HMAC-signed, expiring and single-use via
+  `VisitorStore.consumeOnce`. Database stores must implement it atomically.
+- Decision reasons stay server-side: the Fetch handler never returns them.
+- The demo (`docs/`) runs the real engine in the tab from `edge.js`; keep the
+  ids the Playwright demo test relies on (`#instant-banner`,
+  `#hero-verdict-text`, `#copy-detection`, `#device-visitor-id`, `#device-log`).
 
 ## IP blocklists
 

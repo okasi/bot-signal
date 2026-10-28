@@ -1,8 +1,13 @@
 import {
   buildBehavioralSignals,
+  collectDeviceSignals,
   createBehavioralClientDetector,
   detectInstantClient,
   detectInstantClientAsync,
+  identify,
+  protect,
+  STORAGE_TOKEN_COOKIE,
+  STORAGE_TOKEN_KEY,
   VERSION,
 } from "./browser.js";
 
@@ -987,6 +992,370 @@ $("preset-select").addEventListener("change", (event) => {
   renderServer();
 });
 
+/* ===================== device intelligence demo server ==================== */
+
+// The site is static, so the identification "server" runs in this tab: the
+// real bot-signal/edge engine (WebCrypto, no Node built-ins). Its database is
+// kept under its own storage key, separate from the client-side identifiers
+// that "Wipe" removes, exactly as your real database is separate from the
+// visitor's browser.
+const DEMO_DB_KEY = "bot-signal-demo:db";
+const DEMO_SALT = "bot-signal-public-demo-salt-do-not-reuse-0001";
+const DEMO_ENDPOINT = "/demo/bot-signal";
+let demoServer = null;
+
+function readDemoDb() {
+  try {
+    const records = JSON.parse(localStorage.getItem(DEMO_DB_KEY) ?? "[]");
+    return Array.isArray(records) ? records : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadDemoServer() {
+  demoServer ??= import("./edge.js").then(async (engine) => {
+    const store = new engine.MemoryVisitorStore();
+    for (const record of readDemoDb()) await store.saveVisitor(record);
+    const intel = engine.createDeviceIntelligence({ salt: DEMO_SALT, store });
+    async function persist(visitorId) {
+      try {
+        const record = await store.getVisitor(visitorId);
+        const others = readDemoDb().filter((entry) => entry.visitorId !== visitorId);
+        localStorage.setItem(DEMO_DB_KEY, JSON.stringify([...others, record].filter(Boolean).slice(-25)));
+      } catch {
+        /* storage full or blocked: the demo keeps working in memory */
+      }
+    }
+    return { engine, intel, store, persist };
+  });
+  return demoServer;
+}
+
+const SCENARIOS = {
+  you: {
+    desc: "Your real browser, exactly as it is. Most people sail through with no challenge at all.",
+    request: () => ({ userAgent: navigator.userAgent, acceptLanguage: (navigator.languages ?? []).join(",") }),
+    mutate: (payload) => payload,
+  },
+  grey: {
+    desc: "Your device, but in a private window with an anti-fingerprinting extension that noises the canvas. Suspicious, not proof, so strict actions get an invisible challenge instead of a block.",
+    request: () => ({ userAgent: navigator.userAgent, acceptLanguage: (navigator.languages ?? []).join(",") }),
+    mutate: (payload) => ({
+      ...payload,
+      smartSignals: {
+        ...payload.smartSignals,
+        incognito: true,
+        privacyBrowser: payload.smartSignals.privacyBrowser ?? "brave",
+        tampering: [...new Set([...payload.smartSignals.tampering, "isCanvasNoiseInjected"])],
+      },
+    }),
+  },
+  farm: {
+    desc: "Your device has already opened three other accounts today. Multi-accounting and promo abuse show up in velocity, even with fresh emails.",
+    request: () => ({ userAgent: navigator.userAgent, acceptLanguage: (navigator.languages ?? []).join(",") }),
+    mutate: (payload) => payload,
+  },
+  bot: {
+    desc: "A Python script replaying the request from a server. The server sees the client for what it is and refuses it. No challenge is wasted on it.",
+    request: () => ({ userAgent: "python-requests/2.31.0" }),
+    mutate: (payload) => payload,
+  },
+};
+
+function jsonResponse(status, body) {
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+}
+
+/** A `fetch` that routes bot-signal requests to the in-tab engine and reports each step. */
+function demoFetch(scenarioKey, onStep = () => {}) {
+  const scenario = SCENARIOS[scenarioKey];
+  return async (_url, init) => {
+    const { intel, persist } = await loadDemoServer();
+    const body = JSON.parse(init.body);
+    if (body.solution) {
+      const verified = await intel.verifyChallenge(body.solution);
+      onStep({ type: "verify", verified });
+      return verified.valid
+        ? jsonResponse(200, { decision: "allow", token: verified.token })
+        : jsonResponse(403, { decision: "block", error: "challenge_failed" });
+    }
+    const result = await intel.identify({
+      payload: scenario.mutate(body.payload),
+      request: scenario.request(),
+      action: body.action,
+      linkedId: body.linkedId,
+      url: body.url,
+    });
+    await persist(result.event.visitorId);
+    onStep({ type: "identify", result, durationMs: body.payload.durationMs });
+    return jsonResponse(200, {
+      eventId: result.event.eventId,
+      visitorId: result.event.visitorId,
+      confidence: result.event.confidence,
+      sealedResult: result.sealedResult,
+      // Simulated attackers don't get to plant identifiers in your real browser.
+      storageToken: scenarioKey === "you" ? result.storageToken : undefined,
+      decision: result.decision,
+      token: result.token,
+      challenge: result.challenge,
+    });
+  };
+}
+
+/* ============================ device ID section ============================ */
+
+const deviceHistory = [];
+
+function formatTime(timestamp) {
+  return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+const MATCH_TEXT = {
+  new: "First visit: new device registered",
+  storage: "Recognised by its first-party token",
+  fingerprint: "Recognised by device fingerprint alone",
+};
+
+function smartItem(name, value, tone = "ok") {
+  const item = document.createElement("li");
+  item.className = `smart${tone === "hit" ? " smart--hit" : tone === "bad" ? " smart--bad" : ""}`;
+  const label = document.createElement("span");
+  label.className = "smart__name";
+  label.textContent = name;
+  const text = document.createElement("span");
+  text.className = "smart__value";
+  text.textContent = value;
+  item.append(label, text);
+  return item;
+}
+
+function renderSmartSignals(signals) {
+  const velocity = signals.velocity;
+  const list = $("device-smart");
+  list.replaceChildren(
+    smartItem("Bot", signals.bot.result === "bad" ? `detected · ${signals.bot.automationKind}` : signals.bot.result === "good" ? "verified crawler" : "not detected", signals.bot.result === "bad" ? "bad" : "ok"),
+    smartItem("Incognito", signals.incognito === null ? "unknown" : signals.incognito ? "yes" : "no", signals.incognito ? "hit" : "ok"),
+    smartItem("Privacy browser", signals.privacyBrowser ?? "none", signals.privacyBrowser ? "hit" : "ok"),
+    smartItem("Tampering", signals.tampering.detected ? signals.tampering.signals.join(", ") : "none", signals.tampering.detected ? "hit" : "ok"),
+    smartItem("Virtual machine", signals.virtualMachine ? "likely" : "no", signals.virtualMachine ? "hit" : "ok"),
+    smartItem(
+      "VPN / proxy",
+      signals.vpn.detected || signals.proxy ? "detected" : signals.ipInfo.ip ? "no" : "needs your server (no IP here)",
+      signals.vpn.detected || signals.proxy ? "hit" : "ok",
+    ),
+    smartItem("Visits · 24 h", String(velocity.events["24h"])),
+    smartItem("Accounts on device · 24 h", String(velocity.distinctLinkedId["24h"]), velocity.distinctLinkedId["24h"] > 2 ? "hit" : "ok"),
+  );
+}
+
+function renderDevice(event, note) {
+  const previous = deviceHistory.at(-1);
+  deviceHistory.push({ event, note });
+
+  const id = $("device-visitor-id");
+  id.textContent = event.visitorId;
+  id.classList.remove("is-flash");
+  void id.offsetWidth;
+  id.classList.add("is-flash");
+  $("hero-stat-visitor").textContent = event.visitorId.slice(0, 8);
+  $("hero-stat-visitor").title = event.visitorId;
+
+  const meta = $("device-match");
+  const sameAfterWipe = note === "wipe" && previous && previous.event.visitorId === event.visitorId;
+  meta.classList.toggle("is-good", Boolean(sameAfterWipe));
+  meta.textContent = sameAfterWipe
+    ? "Same visitor ID after wiping the cookie and localStorage token"
+    : MATCH_TEXT[event.matchedBy];
+
+  $("device-confidence").textContent = `${Math.round(event.confidence * 100)}%`;
+  $("device-visits").textContent = event.visitCount;
+  $("device-matched-by").textContent = event.matchedBy;
+  $("device-suspect").textContent = `${event.smartSignals.suspectScore}/100`;
+  renderSmartSignals(event.smartSignals);
+  $("device-json").textContent = JSON.stringify(event, null, 2);
+
+  const row = document.createElement("li");
+  const time = document.createElement("time");
+  time.textContent = formatTime(event.timestamp);
+  const what = document.createElement("span");
+  const label = note === "wipe" ? "after wipe" : note === "forget" ? "after forget" : note === "load" ? "page load" : "again";
+  what.innerHTML = `${label} · <code>${event.visitorId.slice(0, 12)}…</code> via ${event.matchedBy}`;
+  const verdict = document.createElement("span");
+  if (previous) {
+    const same = previous.event.visitorId === event.visitorId;
+    verdict.className = same ? "same" : "changed";
+    verdict.textContent = same ? "same ID" : "new ID";
+  } else {
+    verdict.textContent = `${Math.round(event.confidence * 100)}%`;
+  }
+  row.append(time, what, verdict);
+  $("device-log").prepend(row);
+}
+
+async function runIdentify(note) {
+  const buttons = ["device-identify", "device-wipe", "device-forget"].map($);
+  buttons.forEach((button) => (button.disabled = true));
+  let captured = null;
+  try {
+    await identify(window, {
+      endpoint: DEMO_ENDPOINT,
+      fetch: demoFetch("you", (step) => {
+        if (step.type === "identify") captured = step.result.event;
+      }),
+    });
+    if (captured) renderDevice(captured, note);
+  } catch (error) {
+    $("device-visitor-id").textContent = "unavailable";
+    $("device-match").textContent = `The identification engine could not load here (${error.message}).`;
+  } finally {
+    buttons.forEach((button) => (button.disabled = false));
+  }
+}
+
+function wipeClientIdentifiers() {
+  try {
+    localStorage.removeItem(STORAGE_TOKEN_KEY);
+  } catch {
+    /* blocked storage */
+  }
+  document.cookie = `${STORAGE_TOKEN_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax`;
+}
+
+$("device-identify").addEventListener("click", () => runIdentify("again"));
+$("device-wipe").addEventListener("click", () => {
+  wipeClientIdentifiers();
+  runIdentify("wipe");
+});
+$("device-forget").addEventListener("click", async () => {
+  const current = deviceHistory.at(-1)?.event;
+  if (current) {
+    const { intel } = await loadDemoServer();
+    await intel.deleteVisitor(current.visitorId);
+    try {
+      localStorage.setItem(DEMO_DB_KEY, JSON.stringify(readDemoDb().filter((r) => r.visitorId !== current.visitorId)));
+    } catch {
+      /* blocked storage */
+    }
+  }
+  wipeClientIdentifiers();
+  runIdentify("forget");
+});
+
+/* ============================ protect section ============================= */
+
+let protectScenario = "you";
+
+function setProtectBanner(tone, title, detail, pill) {
+  const banner = $("protect-banner");
+  banner.classList.remove("banner--ok", "banner--bad", "banner--pending");
+  banner.classList.add(`banner--${tone}`);
+  $("protect-banner-title").textContent = title;
+  $("protect-banner-detail").textContent = detail;
+  const pillEl = $("protect-banner-pill");
+  pillEl.className = `pill pill--${tone}`;
+  pillEl.textContent = pill;
+}
+
+function addStep(tone, title, detail) {
+  const item = document.createElement("li");
+  item.className = `is-${tone}`;
+  const strong = document.createElement("strong");
+  strong.textContent = title;
+  const span = document.createElement("span");
+  span.textContent = detail;
+  item.append(strong, span);
+  $("protect-timeline").append(item);
+}
+
+function selectScenario(key) {
+  protectScenario = key;
+  for (const chip of document.querySelectorAll("[data-scenario]")) {
+    const on = chip.dataset.scenario === key;
+    chip.classList.toggle("chip--on", on);
+    chip.setAttribute("aria-pressed", String(on));
+  }
+  $("protect-scenario-desc").textContent = SCENARIOS[key].desc;
+}
+
+for (const chip of document.querySelectorAll("[data-scenario]")) {
+  chip.addEventListener("click", () => selectScenario(chip.dataset.scenario));
+}
+
+async function seedAccountFarm(action) {
+  const { intel } = await loadDemoServer();
+  const payload = await collectDeviceSignals(window);
+  const stamp = Date.now().toString(36);
+  for (let index = 1; index <= 3; index += 1) {
+    await intel.identify({ payload, request: SCENARIOS.farm.request(), action, linkedId: `farm-${stamp}-${index}@example.com` });
+  }
+}
+
+$("protect-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const submit = $("protect-submit");
+  const action = $("protect-action").value;
+  const email = $("protect-email").value.trim() || "ada@example.com";
+  submit.disabled = true;
+  $("protect-timeline").replaceChildren();
+  setProtectBanner("pending", "Checking…", "Identifying the device and asking the server", "working");
+
+  try {
+    if (protectScenario === "farm") {
+      await seedAccountFarm(action);
+      addStep("warn", "Earlier today: 3 signups from this device", "Simulated: farm-…-1, -2, -3 @example.com");
+    }
+    let identified = null;
+    let challenge = null;
+    const startedAt = performance.now();
+    const result = await protect(window, {
+      endpoint: DEMO_ENDPOINT,
+      action,
+      linkedId: email,
+      fetch: demoFetch(protectScenario, (step) => {
+        if (step.type === "identify") {
+          identified = step.result;
+          challenge = step.result.challenge;
+          addStep("good", "Device signals collected in the browser", `${Math.round(step.durationMs)} ms · 18 components + smart signals, sent once`);
+          const tone = step.result.decision === "allow" ? "good" : step.result.decision === "challenge" ? "warn" : "bad";
+          const reasons = step.result.reasons.length ? step.result.reasons.join(" · ") : "nothing suspicious";
+          addStep(tone, `Server decision for "${action}": ${step.result.decision}`, `Suspect score ${step.result.event.smartSignals.suspectScore}/100 · ${reasons}`);
+        }
+        if (step.type === "verify") {
+          addStep(step.verified.valid ? "good" : "bad", step.verified.valid ? "Server verified the proof-of-work" : "Server rejected the proof-of-work", step.verified.valid ? "Signature, expiry and work checked; challenge marked as used" : step.verified.reason);
+        }
+      }),
+    });
+    const totalMs = Math.round(performance.now() - startedAt);
+
+    if (result.challenged) {
+      addStep("good", `Invisible challenge solved in ${result.solveMs} ms`, `${challenge?.difficulty ?? "?"}-bit SHA-256 proof-of-work in the background. The visitor saw nothing.`);
+    }
+
+    if (!result.token) {
+      setProtectBanner("bad", "Blocked", identified?.reasons[0] ?? "The server refused this request", "blocked");
+      return;
+    }
+
+    const { intel } = await loadDemoServer();
+    const check = await intel.verifyToken(result.token, { action });
+    addStep(check.valid ? "good" : "bad", "Your signup route verified the token", check.valid ? `valid · visitor ${check.claims.visitorId.slice(0, 10)}… · challengePassed: ${check.claims.challengePassed}` : check.reason);
+    const replay = await intel.verifyToken(result.token, { action });
+    addStep("good", "Replaying the same token is refused", `reason: ${replay.reason} (tokens are single-use and expire after 5 minutes)`);
+
+    setProtectBanner(
+      "ok",
+      result.challenged ? "Account created after an invisible check" : "Account created",
+      `${totalMs} ms end to end · no CAPTCHA shown`,
+      result.challenged ? "challenged" : "allowed",
+    );
+  } catch (error) {
+    setProtectBanner("bad", "Something went wrong", error.message, "error");
+  } finally {
+    submit.disabled = false;
+  }
+});
+
 /* ================================ boot ================================== */
 
 $("footer-ua").textContent = navigator.userAgent;
@@ -1005,5 +1374,10 @@ renderSignals({
   }),
 });
 
+selectScenario("you");
+
 // small delay so the radar sweep reads as a scan
-setTimeout(() => runInstant(), 650);
+setTimeout(() => {
+  runInstant();
+  runIdentify("load");
+}, 650);
