@@ -112,6 +112,10 @@ describe("actual Playwright Chromium detection in page scripts", () => {
         path: fileURLToPath(new URL("../../dist/browser.js", import.meta.url)),
         contentType: "text/javascript",
       }));
+      await page.route("**/docs/edge.js*", (route) => route.fulfill({
+        path: fileURLToPath(new URL("../../dist/edge.js", import.meta.url)),
+        contentType: "text/javascript",
+      }));
       await page.goto(`${server.baseUrl}/docs/index.html`);
       await page.locator("#instant-banner.banner--bad").waitFor();
       expect(await page.locator("#hero-verdict-text").textContent()).toBe("Automation suspected");
@@ -123,6 +127,14 @@ describe("actual Playwright Chromium detection in page scripts", () => {
       expect(details.result.isLegitClient).toBe(false);
       expect(details.result.automation.isAutomated).toBe(true);
       expect(details.result.automation.alternatives).toContain("playwright");
+
+      // The device ID demo runs the real engine in the tab and survives a wipe.
+      await page.locator("#device-log li").first().waitFor();
+      const firstId = await page.locator("#device-visitor-id").textContent();
+      expect(firstId).toMatch(/^[A-Za-z0-9_-]{16,}$/);
+      await page.getByRole("button", { name: "Wipe cookie & token, re-identify" }).click();
+      await page.locator("#device-log li").nth(1).waitFor();
+      expect(await page.locator("#device-visitor-id").textContent()).toBe(firstId);
     } finally {
       await context.close();
       await browser.close();

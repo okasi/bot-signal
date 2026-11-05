@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>bot-signal — Bot &amp; Headless Browser Detection for JavaScript</title>
+    <title>bot-signal — Open-source Fingerprint alternative &amp; CAPTCHA replacement</title>
     <meta
       name="description"
-      content="Open-source bot detection for JavaScript and Node.js. Detect headless Chrome, Playwright, Puppeteer, Selenium and scripted mouse or touch input. Run the checks against your own browser."
+      content="Self-hosted device intelligence and bot protection for JavaScript. Persistent visitor IDs that survive cookie wipes, headless and automation detection, and an invisible proof-of-work that replaces CAPTCHAs. MIT, no per-call pricing."
     />
     <link rel="canonical" href="https://okasi.github.io/bot-signal/" />
     <meta name="robots" content="index, follow, max-image-preview:large" />
@@ -20,11 +20,11 @@
     <meta property="og:url" content="https://okasi.github.io/bot-signal/" />
     <meta
       property="og:title"
-      content="bot-signal — Bot &amp; Headless Browser Detection for JavaScript"
+      content="bot-signal — Open-source Fingerprint alternative &amp; CAPTCHA replacement"
     />
     <meta
       property="og:description"
-      content="Detect headless Chrome, Playwright, Puppeteer and Selenium in the browser and on the server. Run the real library against your own browser."
+      content="Persistent device IDs, bot detection and invisible challenges you host yourself. Run the real library against your own browser."
     />
     <meta property="og:image" content="https://okasi.github.io/bot-signal/og.png" />
     <meta property="og:image:width" content="1200" />
@@ -36,11 +36,11 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta
       name="twitter:title"
-      content="bot-signal — Bot &amp; Headless Browser Detection for JavaScript"
+      content="bot-signal — Open-source Fingerprint alternative &amp; CAPTCHA replacement"
     />
     <meta
       name="twitter:description"
-      content="Detect headless Chrome, Playwright, Puppeteer and Selenium in the browser and on the server."
+      content="Persistent device IDs, bot detection and invisible challenges you host yourself. MIT, no per-call pricing."
     />
     <meta name="twitter:image" content="https://okasi.github.io/bot-signal/og.png" />
 
@@ -54,14 +54,14 @@
             "@type": "SoftwareSourceCode",
             "@id": "https://okasi.github.io/bot-signal/#software",
             "name": "bot-signal",
-            "description": "Multi-layer bot and automation detection for JavaScript and Node.js: instant browser checks, behavioral scoring, and server-side IP, TLS, and timezone signals.",
+            "description": "Self-hosted device intelligence and bot protection for JavaScript: persistent visitor IDs, smart signals, instant and behavioral bot detection, server-side IP and TLS scoring, and an invisible proof-of-work challenge that replaces CAPTCHAs.",
             "url": "https://okasi.github.io/bot-signal/",
             "codeRepository": "https://github.com/okasi/bot-signal",
             "programmingLanguage": "TypeScript",
             "runtimePlatform": ["Node.js", "Web browser"],
             "license": "https://opensource.org/licenses/MIT",
             "author": { "@type": "Person", "name": "okasi" },
-            "keywords": "bot detection, headless browser detection, Playwright detection, Puppeteer detection, Selenium detection, WebDriver, browser fingerprinting, anti-bot"
+            "keywords": "device fingerprinting, visitor identification, Fingerprint alternative, CAPTCHA alternative, fraud prevention, bot detection, headless browser detection, Playwright detection, Puppeteer detection, Selenium detection, WebDriver, browser fingerprinting, anti-bot"
           },
           {
             "@type": "WebSite",
@@ -73,6 +73,22 @@
           {
             "@type": "FAQPage",
             "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "Is bot-signal an alternative to Fingerprint (fingerprint.com)?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "For many teams, yes. It issues a persistent visitorId with a confidence score and smart signals (incognito, VPN, virtual machine, tampering, velocity, bot), matched on your own server with salted digests and a first-party token. It is MIT licensed and self-hosted, so there is no per-call bill. Fingerprint has a larger dataset and published accuracy figures; bot-signal's accuracy has not been independently measured yet."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "How does bot-signal replace a CAPTCHA?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "protect() identifies the device, the server decides allow, challenge or block per action, and risky visitors silently solve a signed SHA-256 proof-of-work in the background. The backend checks a single-use token with verifyToken(). Real people never see a puzzle; abuse at scale pays in CPU time and gets blocked when the evidence is clear."
+                }
+              },
               {
                 "@type": "Question",
                 "name": "Can bot-signal detect headless Chrome?",
@@ -135,7 +151,7 @@
     </script>
   </head>
   <body>
-    <a class="skip-link" href="#instant">Skip to results</a>
+    <a class="skip-link" href="#device">Skip to results</a>
 
     <header class="topbar">
       <div class="shell topbar__inner">
@@ -144,9 +160,11 @@
           <span class="brand__name">bot-signal</span>
         </a>
         <nav class="topbar__nav" aria-label="Sections">
-          <a href="#instant">Instant</a>
-          <a href="#behavioral">Behavioral</a>
-          <a href="#server">Server</a>
+          <a href="#device">Device ID</a>
+          <a href="#protect">No CAPTCHA</a>
+          <a href="#use-cases">Use cases</a>
+          <a href="#instant">Detection</a>
+          <a href="#compare">Compare</a>
           <a href="#quickstart">Quick start</a>
           <a href="#faq">FAQ</a>
         </nav>
@@ -172,14 +190,20 @@
         <div class="shell hero__inner">
           <div class="hero__copy">
             <h1 class="hero__title">
-              <span class="hero__eyebrow">Bot detection for JavaScript &amp; Node.js — live demo</span>
-              Is your browser<br /><span id="hero-highlight" class="hero__highlight">being scanned…</span>
+              <span class="hero__eyebrow">Open-source Fingerprint alternative · CAPTCHA replacement</span>
+              Know every device.<br />Stop bots without a&nbsp;<span class="hero__strike">CAPTCHA</span>.
             </h1>
             <p class="hero__lede">
-              <strong>bot-signal</strong> detects headless Chrome, Playwright, Puppeteer and
-              Selenium, and scores scripted mouse, touch and typing input — in the browser and
-              on the server. This page runs the real library against <em>you</em>.
+              <strong>bot-signal</strong> gives every visitor a stable device ID that survives
+              cookie wipes and private windows, catches headless Chrome, Playwright, Puppeteer and
+              Selenium, and lets real people through with an invisible proof-of-work instead of a
+              puzzle. You host it, so there is no per-call bill. This page runs the real library
+              against <em>you</em>.
             </p>
+            <div class="hero__ctas">
+              <a class="btn btn--primary" href="#device">See your device ID</a>
+              <a class="btn" href="#protect">Try a CAPTCHA-free signup</a>
+            </div>
             <div class="install" role="group" aria-label="Install command">
               <code class="install__cmd" id="install-cmd">npm install bot-signal</code>
               <button class="install__copy" id="copy-install" type="button" aria-label="Copy install command">
@@ -188,7 +212,7 @@
               </button>
             </div>
             <p class="hero__meta">
-              TypeScript · ESM + CJS · browser/server entry points · one dependency · MIT
+              Device ID · smart signals · bot detection · invisible challenge · Node, Bun, Deno &amp; edge · MIT
             </p>
           </div>
 
@@ -203,7 +227,7 @@
                 </div>
               </div>
               <div class="scan-card__body">
-                <span class="scan-card__label">Verdict</span>
+                <span class="scan-card__label">Your browser is <span id="hero-highlight" class="hero__highlight">being scanned…</span></span>
                 <strong class="scan-card__verdict" id="hero-verdict-text">Scanning…</strong>
                 <span class="scan-card__detail" id="hero-verdict-detail">Running instant checks</span>
               </div>
@@ -211,8 +235,238 @@
                 <div><dt>Instant checks</dt><dd id="hero-stat-instant">–</dd></div>
                 <div><dt>Flagged</dt><dd id="hero-stat-flagged">–</dd></div>
                 <div><dt>Behavioral score</dt><dd id="hero-stat-score">not run</dd></div>
+                <div><dt>Device ID</dt><dd id="hero-stat-visitor">…</dd></div>
               </dl>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- =========================== DEVICE ID ============================ -->
+      <section class="section section--alt" id="device" aria-labelledby="device-title">
+        <div class="shell">
+          <header class="section__head">
+            <div>
+              <p class="section__kicker">Device intelligence · self-hosted</p>
+              <h2 id="device-title">A visitor ID that survives cookie wipes</h2>
+              <p class="section__desc">
+                <code>identify()</code> collects 18 device components in the browser. Your server
+                matches them against earlier visits using salted HMAC digests plus a first-party
+                token. Clear cookies or open a private window and the same device still gets the
+                same <code>visitorId</code>, with a confidence score and smart signals: incognito,
+                VPN, virtual machine, tampering, velocity, bot.
+              </p>
+              <p class="section__note" role="note">
+                <span class="section__note-label">Demo server</span>
+                <span>This site is static, so the "server" runs inside this tab: the real
+                <code>bot-signal/edge</code> engine, with its demo database kept in this tab's
+                storage under its own key. In production it runs on your Node, Bun, Deno or
+                Workers backend with your database, and nothing leaves your infrastructure.</span>
+              </p>
+            </div>
+            <div class="section__actions">
+              <button id="device-wipe" class="btn btn--primary" type="button">Wipe cookie &amp; token, re-identify</button>
+              <button id="device-identify" class="btn" type="button">Identify again</button>
+              <button id="device-forget" class="btn btn--danger-ghost" type="button">Forget this device</button>
+            </div>
+          </header>
+
+          <div class="device-grid">
+            <div class="device-card">
+              <span class="device-card__label">Your visitor ID</span>
+              <strong class="device-card__id" id="device-visitor-id">identifying…</strong>
+              <span class="device-card__meta" id="device-match">Running the identification engine</span>
+              <dl class="device-card__stats">
+                <div><dt>Confidence</dt><dd id="device-confidence">–</dd></div>
+                <div><dt>Visits</dt><dd id="device-visits">–</dd></div>
+                <div><dt>Matched by</dt><dd id="device-matched-by">–</dd></div>
+                <div><dt>Suspect score</dt><dd id="device-suspect">–</dd></div>
+              </dl>
+              <h3 class="device-card__subhead">This session</h3>
+              <ol class="device-log" id="device-log" aria-label="Identification history"></ol>
+            </div>
+
+            <div class="device-side">
+              <ul class="smart-list" id="device-smart" aria-label="Smart signals"></ul>
+              <div class="server-code">
+                <div class="server-code__head">
+                  <span>Event your server stores</span>
+                  <button class="copy-mini" data-copy-target="device-json" type="button">Copy</button>
+                </div>
+                <pre class="server-code__scroll"><code id="device-json">{}</code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================ PROTECT ============================= -->
+      <section class="section" id="protect" aria-labelledby="protect-title">
+        <div class="shell">
+          <header class="section__head">
+            <div>
+              <p class="section__kicker">CAPTCHA replacement</p>
+              <h2 id="protect-title">Real people never see a puzzle</h2>
+              <p class="section__desc">
+                <code>protect()</code> identifies the device and your server decides
+                <em>allow</em>, <em>challenge</em> or <em>block</em> for the action. A visitor who
+                looks risky solves a signed proof-of-work in the background; a clear bot is refused.
+                Your backend checks a single-use token with <code>verifyToken()</code>. No widget,
+                no traffic lights, no third-party script.
+              </p>
+            </div>
+          </header>
+
+          <div class="protect-grid">
+            <form class="protect-form" id="protect-form" novalidate>
+              <h3>Create an account</h3>
+              <label class="type-field">
+                <span>Email</span>
+                <input id="protect-email" type="email" value="ada@example.com" autocomplete="off" spellcheck="false" />
+              </label>
+              <label class="type-field">
+                <span>Protected action</span>
+                <select id="protect-action" class="select">
+                  <option value="signup">signup: strict</option>
+                  <option value="login">login</option>
+                  <option value="checkout">checkout: strictest</option>
+                  <option value="content">content: lenient, allows verified crawlers</option>
+                </select>
+              </label>
+              <fieldset class="protect-scenarios">
+                <legend>Who is submitting?</legend>
+                <div class="chips" role="group" aria-label="Scenario">
+                  <button class="chip chip--on" data-scenario="you" type="button" aria-pressed="true">You</button>
+                  <button class="chip" data-scenario="grey" type="button" aria-pressed="false">Incognito + spoofed canvas</button>
+                  <button class="chip" data-scenario="farm" type="button" aria-pressed="false">Account farm</button>
+                  <button class="chip" data-scenario="bot" type="button" aria-pressed="false">Headless script</button>
+                </div>
+                <p class="protect-scenario-desc" id="protect-scenario-desc"></p>
+              </fieldset>
+              <button class="btn btn--primary protect-submit" id="protect-submit" type="submit">Create account</button>
+              <p class="protect-hint">There is no CAPTCHA on this form.</p>
+            </form>
+
+            <div class="protect-result">
+              <div id="protect-banner" class="banner banner--pending banner--tight" role="status" aria-live="polite">
+                <span class="banner__icon" aria-hidden="true"></span>
+                <div class="banner__text">
+                  <strong id="protect-banner-title">Waiting for a submission</strong>
+                  <span id="protect-banner-detail">Pick who is submitting, then press Create account</span>
+                </div>
+                <span id="protect-banner-pill" class="pill pill--pending">idle</span>
+              </div>
+              <ol class="timeline" id="protect-timeline" aria-label="What happened"></ol>
+              <div class="server-code">
+                <div class="server-code__head">
+                  <span>Your signup route</span>
+                  <button class="copy-mini" data-copy-target="protect-code" type="button">Copy</button>
+                </div>
+<pre><code id="protect-code"><span class="tok-kw">const</span> check = <span class="tok-kw">await</span> intel.<span class="tok-fn">verifyToken</span>(body.token, {
+  action: <span class="tok-str">"signup"</span>,
+});
+<span class="tok-cm">// forged, expired or replayed tokens fail here</span>
+<span class="tok-kw">if</span> (!check.valid) <span class="tok-kw">return</span> res.<span class="tok-fn">status</span>(<span class="tok-num">403</span>).<span class="tok-fn">end</span>();
+
+<span class="tok-kw">await</span> <span class="tok-fn">createUser</span>({ email, visitorId: check.claims.visitorId });</code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- =========================== USE CASES ============================ -->
+      <section class="section section--alt" id="use-cases" aria-labelledby="use-cases-title">
+        <div class="shell">
+          <header class="section__head">
+            <div>
+              <p class="section__kicker">What teams use it for</p>
+              <h2 id="use-cases-title">One device ID, six expensive problems</h2>
+              <p class="section__desc">
+                Each snippet runs on your server against the same <code>intel</code> instance.
+                Policies per action are built in and you can override every threshold.
+              </p>
+            </div>
+          </header>
+
+          <div class="usecase-grid">
+            <article class="usecase">
+              <div class="usecase__head">
+                <h3>Signup abuse &amp; multi-accounting</h3>
+                <button class="copy-mini" data-copy-target="uc-signup" type="button">Copy</button>
+              </div>
+              <p>Fake accounts, referral and promo farming. One device, many emails.</p>
+<pre><code id="uc-signup"><span class="tok-kw">const</span> check = <span class="tok-kw">await</span> intel.<span class="tok-fn">verifyToken</span>(token, { action: <span class="tok-str">"signup"</span> });
+<span class="tok-kw">if</span> (!check.valid) <span class="tok-kw">return</span> <span class="tok-fn">reject</span>();
+
+<span class="tok-kw">const</span> v = check.event.smartSignals.velocity;
+<span class="tok-kw">if</span> (v.distinctLinkedId[<span class="tok-str">"24h"</span>] &gt; <span class="tok-num">2</span>) <span class="tok-fn">holdPromoCredit</span>(check.claims.visitorId);</code></pre>
+            </article>
+
+            <article class="usecase">
+              <div class="usecase__head">
+                <h3>Credential stuffing &amp; account takeover</h3>
+                <button class="copy-mini" data-copy-target="uc-login" type="button">Copy</button>
+              </div>
+              <p>Step up only when a login comes from a device this account has never used.</p>
+<pre><code id="uc-login"><span class="tok-kw">const</span> { event } = <span class="tok-kw">await</span> intel.<span class="tok-fn">identify</span>({ payload, request, action: <span class="tok-str">"login"</span>, linkedId: email });
+<span class="tok-kw">const</span> seen = <span class="tok-kw">await</span> intel.<span class="tok-fn">searchEvents</span>({ linkedId: email, limit: <span class="tok-num">100</span> });
+
+<span class="tok-kw">if</span> (!seen.<span class="tok-fn">some</span>((e) =&gt; e.visitorId === event.visitorId &amp;&amp; e.eventId !== event.eventId))
+  <span class="tok-kw">return</span> <span class="tok-fn">requireSecondFactor</span>(email);</code></pre>
+            </article>
+
+            <article class="usecase">
+              <div class="usecase__head">
+                <h3>Checkout &amp; payment fraud</h3>
+                <button class="copy-mini" data-copy-target="uc-checkout" type="button">Copy</button>
+              </div>
+              <p>Send risky orders to 3-D Secure or review, and let clean ones through untouched.</p>
+<pre><code id="uc-checkout"><span class="tok-kw">const</span> check = <span class="tok-kw">await</span> intel.<span class="tok-fn">verifyToken</span>(token, { action: <span class="tok-str">"checkout"</span> });
+<span class="tok-kw">const</span> s = check.event?.smartSignals;
+
+<span class="tok-kw">if</span> (!check.valid || s.tampering.detected || s.vpn.detected || s.suspectScore &gt; <span class="tok-num">40</span>)
+  <span class="tok-kw">return</span> <span class="tok-fn">requireThreeDSecure</span>(order);</code></pre>
+            </article>
+
+            <article class="usecase">
+              <div class="usecase__head">
+                <h3>Scraping &amp; content theft</h3>
+                <button class="copy-mini" data-copy-target="uc-content" type="button">Copy</button>
+              </div>
+              <p>Block headless crawlers at the edge while verified search engines keep indexing.</p>
+<pre><code id="uc-content"><span class="tok-kw">import</span> { createDeviceIntelligence } <span class="tok-kw">from</span> <span class="tok-str">"bot-signal/edge"</span>;
+
+<span class="tok-kw">const</span> { decision } = <span class="tok-kw">await</span> intel.<span class="tok-fn">identify</span>({ payload, request, action: <span class="tok-str">"content"</span> });
+<span class="tok-kw">if</span> (decision === <span class="tok-str">"block"</span>) <span class="tok-kw">return</span> <span class="tok-kw">new</span> <span class="tok-fn">Response</span>(<span class="tok-kw">null</span>, { status: <span class="tok-num">403</span> });</code></pre>
+            </article>
+
+            <article class="usecase">
+              <div class="usecase__head">
+                <h3>Free-trial abuse &amp; account sharing</h3>
+                <button class="copy-mini" data-copy-target="uc-trial" type="button">Copy</button>
+              </div>
+              <p>One trial per device, and an upsell when one login turns up on too many devices.</p>
+<pre><code id="uc-trial"><span class="tok-kw">if</span> (<span class="tok-kw">await</span> db.trials.<span class="tok-fn">exists</span>({ visitorId })) <span class="tok-kw">return</span> <span class="tok-fn">offerPaidPlan</span>();
+
+<span class="tok-kw">const</span> events = <span class="tok-kw">await</span> intel.<span class="tok-fn">searchEvents</span>({ linkedId: userId, since: Date.<span class="tok-fn">now</span>() - <span class="tok-num">30</span> * DAY });
+<span class="tok-kw">if</span> (<span class="tok-kw">new</span> <span class="tok-fn">Set</span>(events.<span class="tok-fn">map</span>((e) =&gt; e.visitorId)).size &gt; <span class="tok-num">3</span>) <span class="tok-fn">showSeatUpsell</span>();</code></pre>
+            </article>
+
+            <article class="usecase">
+              <div class="usecase__head">
+                <h3>API &amp; form spam</h3>
+                <button class="copy-mini" data-copy-target="uc-api" type="button">Copy</button>
+              </div>
+              <p>Gate contact forms, comments and public APIs with a token instead of a widget.</p>
+<pre><code id="uc-api"><span class="tok-kw">const</span> { token } = <span class="tok-kw">await</span> <span class="tok-fn">protect</span>(window, { endpoint: <span class="tok-str">"/api/bot-signal"</span>, action: <span class="tok-str">"api"</span> });
+
+<span class="tok-kw">await</span> <span class="tok-fn">fetch</span>(<span class="tok-str">"/api/contact"</span>, {
+  method: <span class="tok-str">"POST"</span>,
+  headers: { <span class="tok-str">"x-bot-signal"</span>: token ?? <span class="tok-str">""</span> },
+  body,
+});</code></pre>
+            </article>
           </div>
         </div>
       </section>
@@ -222,7 +476,7 @@
         <div class="shell">
           <header class="section__head">
             <div>
-              <p class="section__kicker">Layer 1 · synchronous</p>
+              <p class="section__kicker">Bot detection · layer 1 · synchronous</p>
               <h2 id="instant-title">Instant detection</h2>
               <p class="section__desc">
                 <code>detectInstantClient(window)</code> inspects the environment in a single pass —
@@ -277,7 +531,7 @@
         <div class="shell">
           <header class="section__head">
             <div>
-              <p class="section__kicker">Layer 2 · over time</p>
+              <p class="section__kicker">Bot detection · layer 2 · over time</p>
               <h2 id="behavioral-title">Behavioral detection</h2>
               <p class="section__desc">
                 <code>createBehavioralClientDetector()</code> watches how the pointer, touch,
@@ -349,7 +603,7 @@
         <div class="shell">
           <header class="section__head">
             <div>
-              <p class="section__kicker">Layer 3 · Node</p>
+              <p class="section__kicker">Bot detection · layer 3 · server</p>
               <h2 id="server-title">Server-side scoring</h2>
               <p class="section__desc">
                 <code>detectServerClientAsync()</code> runs in Node — GeoIP, datacenter ranges,
@@ -416,16 +670,63 @@
         </div>
       </section>
 
+      <!-- ============================ COMPARE ============================= -->
+      <section class="section section--alt" id="compare" aria-labelledby="compare-title">
+        <div class="shell">
+          <header class="section__head">
+            <div>
+              <p class="section__kicker">Honest comparison</p>
+              <h2 id="compare-title">bot-signal vs Fingerprint vs CAPTCHAs</h2>
+              <p class="section__desc">
+                Fingerprint sells device identification as a service. reCAPTCHA and Turnstile sell
+                a challenge widget. bot-signal does both jobs on your own servers. Here is where
+                each one is stronger.
+              </p>
+            </div>
+          </header>
+
+          <div class="compare-wrap">
+            <table class="compare">
+              <thead>
+                <tr>
+                  <th scope="col"></th>
+                  <th scope="col" class="compare__us">bot-signal</th>
+                  <th scope="col">Fingerprint Pro</th>
+                  <th scope="col">reCAPTCHA / Turnstile</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><th scope="row">Persistent device ID across cookie wipes</th><td class="compare__us"><span class="cmp cmp--yes">Yes</span> 18 components, salted per deployment</td><td><span class="cmp cmp--yes">Yes</span></td><td><span class="cmp cmp--no">No</span> (Turnstile ephemeral IDs are Enterprise-only)</td></tr>
+                <tr><th scope="row">Smart signals: incognito, VPN, VM, tampering, velocity</th><td class="compare__us"><span class="cmp cmp--yes">Yes</span></td><td><span class="cmp cmp--yes">Yes</span> about 27 signals</td><td><span class="cmp cmp--no">No</span> a risk score at most</td></tr>
+                <tr><th scope="row">Headless and automation detection</th><td class="compare__us"><span class="cmp cmp--yes">Yes</span> instant, behavioral, server</td><td><span class="cmp cmp--yes">Yes</span> on paid plans</td><td><span class="cmp cmp--yes">Yes</span></td></tr>
+                <tr><th scope="row">Challenge real people never see</th><td class="compare__us"><span class="cmp cmp--yes">Yes</span> proof-of-work, per action</td><td><span class="cmp cmp--no">No</span> you build the response</td><td>Mostly: Turnstile is often invisible, reCAPTCHA v2 shows puzzles</td></tr>
+                <tr><th scope="row">Data stays on your infrastructure</th><td class="compare__us"><span class="cmp cmp--yes">Yes</span></td><td><span class="cmp cmp--no">No</span> SaaS (EU, US or Asia region)</td><td><span class="cmp cmp--no">No</span> Google or Cloudflare</td></tr>
+                <tr><th scope="row">Open source and auditable</th><td class="compare__us"><span class="cmp cmp--yes">Yes</span> MIT</td><td><span class="cmp cmp--no">No</span> Pro is closed source</td><td><span class="cmp cmp--no">No</span></td></tr>
+                <tr><th scope="row">Cost at 1M requests a month</th><td class="compare__us"><strong>$0</strong> plus your hosting</td><td>≈ $4,019 (Pro Plus: $99 incl. 20K, then $4 per 1K)</td><td>reCAPTCHA ≈ $908 · Turnstile free</td></tr>
+                <tr><th scope="row">Published accuracy</th><td class="compare__us"><span class="cmp cmp--warn">Not yet</span> benchmark harness on the roadmap</td><td>Vendor-published figures</td><td>n/a</td></tr>
+                <tr><th scope="row">Global dataset across customers</th><td class="compare__us"><span class="cmp cmp--no">No</span> by design: IDs never leave your deployment</td><td><span class="cmp cmp--yes">Yes</span></td><td><span class="cmp cmp--yes">Yes</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="compare__foot">
+            Prices from the vendors' public pricing pages, checked October 2026. reCAPTCHA: first 10K
+            assessments free, $8 flat to 100K, then $1 per 1K. Fingerprint figures are vendor
+            claims; bot-signal accuracy has not been independently measured yet.
+          </p>
+        </div>
+      </section>
+
       <!-- ========================== QUICK START ========================== -->
-      <section class="section section--alt" id="quickstart" aria-labelledby="quickstart-title">
+      <section class="section" id="quickstart" aria-labelledby="quickstart-title">
         <div class="shell">
           <header class="section__head">
             <div>
               <p class="section__kicker">Ship it</p>
               <h2 id="quickstart-title">Quick start</h2>
               <p class="section__desc">
-                One package, three layers. Import from the root, or use the
-                <code>/browser</code> and <code>/server</code> entry points.
+                Two calls to replace a CAPTCHA: <code>protect()</code> in the browser,
+                <code>verifyToken()</code> on the server. Entry points: <code>/browser</code>,
+                <code>/server</code> (Node) and <code>/edge</code> (any WebCrypto runtime).
               </p>
             </div>
           </header>
@@ -433,53 +734,70 @@
           <div class="snippet-grid">
             <article class="snippet">
               <div class="snippet__head">
-                <h3>Browser — block on load</h3>
+                <h3>1 · Browser — protect a form</h3>
                 <button class="copy-mini" data-copy-target="snippet-browser" type="button">Copy</button>
               </div>
-              <pre><code id="snippet-browser"><span class="tok-kw">import</span> { isHuman } <span class="tok-kw">from</span> <span class="tok-str">"bot-signal"</span>;
+              <pre><code id="snippet-browser"><span class="tok-kw">import</span> { protect } <span class="tok-kw">from</span> <span class="tok-str">"bot-signal/browser"</span>;
 
-<span class="tok-kw">const</span> result = <span class="tok-fn">detectInstantClient</span>(window);
-
-<span class="tok-kw">if</span> (!result.isLegitClient) {
-  location.href = <span class="tok-str">"/blocked"</span>;
-}</code></pre>
+<span class="tok-kw">const</span> { token } = <span class="tok-kw">await</span> <span class="tok-fn">protect</span>(window, {
+  endpoint: <span class="tok-str">"/api/bot-signal"</span>,
+  action: <span class="tok-str">"signup"</span>,
+  linkedId: email,
+});
+<span class="tok-kw">await</span> <span class="tok-fn">fetch</span>(<span class="tok-str">"/signup"</span>, { method: <span class="tok-str">"POST"</span>, body: JSON.<span class="tok-fn">stringify</span>({ email, token }) });</code></pre>
             </article>
 
             <article class="snippet">
               <div class="snippet__head">
-                <h3>Behavioral — observe &amp; score</h3>
-                <button class="copy-mini" data-copy-target="snippet-behavioral" type="button">Copy</button>
-              </div>
-              <pre><code id="snippet-behavioral"><span class="tok-kw">import</span> { createBehavioralClientDetector } <span class="tok-kw">from</span> <span class="tok-str">"bot-signal"</span>;
-
-<span class="tok-kw">const</span> result = <span class="tok-kw">await</span> <span class="tok-fn">createBehavioralClientDetector</span>({ context: window })
-  .<span class="tok-fn">observe</span>(<span class="tok-num">10_000</span>);
-
-<span class="tok-kw">if</span> (!result.isLegitClient) <span class="tok-fn">challenge</span>();</code></pre>
-            </article>
-
-            <article class="snippet">
-              <div class="snippet__head">
-                <h3>Server — score a request</h3>
+                <h3>2 · Server — endpoint &amp; verify</h3>
                 <button class="copy-mini" data-copy-target="snippet-server" type="button">Copy</button>
               </div>
-              <pre><code id="snippet-server"><span class="tok-kw">import</span> { detectServerClientAsync } <span class="tok-kw">from</span> <span class="tok-str">"bot-signal/server"</span>;
+              <pre><code id="snippet-server"><span class="tok-kw">import</span> { createDeviceIntelligence, createIdentifyHandler } <span class="tok-kw">from</span> <span class="tok-str">"bot-signal/server"</span>;
 
-<span class="tok-kw">const</span> result = <span class="tok-kw">await</span> <span class="tok-fn">detectServerClientAsync</span>({
-  clientIp: req.ip,
-  clientTimezone: req.headers[<span class="tok-str">"x-timezone"</span>],
-  userAgent: req.headers[<span class="tok-str">"user-agent"</span>],
-  tlsFingerprint: req.headers[<span class="tok-str">"x-ja3-hash"</span>],
-});
+<span class="tok-kw">export const</span> intel = <span class="tok-fn">createDeviceIntelligence</span>({ salt: process.env.BOT_SIGNAL_SALT });
+<span class="tok-kw">export const</span> POST = <span class="tok-fn">createIdentifyHandler</span>(intel, { trustProxyHeader: <span class="tok-str">"x-forwarded-for"</span> });
 
-<span class="tok-kw">if</span> (!result.isLegitClient) res.<span class="tok-fn">status</span>(<span class="tok-num">403</span>).<span class="tok-fn">end</span>();</code></pre>
+<span class="tok-cm">// in /signup</span>
+<span class="tok-kw">const</span> check = <span class="tok-kw">await</span> intel.<span class="tok-fn">verifyToken</span>(body.token, { action: <span class="tok-str">"signup"</span> });
+<span class="tok-kw">if</span> (!check.valid) <span class="tok-kw">return new</span> <span class="tok-fn">Response</span>(<span class="tok-kw">null</span>, { status: <span class="tok-num">403</span> });</code></pre>
+            </article>
+
+            <article class="snippet">
+              <div class="snippet__head">
+                <h3>Edge — Workers, Vercel, Deno, Bun</h3>
+                <button class="copy-mini" data-copy-target="snippet-edge" type="button">Copy</button>
+              </div>
+              <pre><code id="snippet-edge"><span class="tok-kw">import</span> { createDeviceIntelligence, createIdentifyHandler } <span class="tok-kw">from</span> <span class="tok-str">"bot-signal/edge"</span>;
+
+<span class="tok-kw">export default</span> {
+  <span class="tok-fn">fetch</span>(request, env) {
+    <span class="tok-kw">const</span> intel = <span class="tok-fn">createDeviceIntelligence</span>({
+      salt: env.BOT_SIGNAL_SALT,
+      store: <span class="tok-fn">yourStore</span>(env), <span class="tok-cm">// any VisitorStore: D1, KV, Redis, Postgres</span>
+    });
+    <span class="tok-kw">return</span> <span class="tok-fn">createIdentifyHandler</span>(intel, { trustProxyHeader: <span class="tok-str">"cf-connecting-ip"</span> })(request);
+  },
+};</code></pre>
+            </article>
+
+            <article class="snippet">
+              <div class="snippet__head">
+                <h3>Just detect bots — no server</h3>
+                <button class="copy-mini" data-copy-target="snippet-detect" type="button">Copy</button>
+              </div>
+              <pre><code id="snippet-detect"><span class="tok-kw">import</span> { detectInstantClient, createBehavioralClientDetector } <span class="tok-kw">from</span> <span class="tok-str">"bot-signal"</span>;
+
+<span class="tok-kw">if</span> (!<span class="tok-fn">detectInstantClient</span>(window).isLegitClient) location.href = <span class="tok-str">"/blocked"</span>;
+
+<span class="tok-kw">const</span> behavior = <span class="tok-kw">await</span> <span class="tok-fn">createBehavioralClientDetector</span>({ context: window })
+  .<span class="tok-fn">observe</span>(<span class="tok-num">10_000</span>);</code></pre>
             </article>
           </div>
         </div>
       </section>
 
       <!-- ============================== FAQ =============================== -->
-      <section class="section" id="faq" aria-labelledby="faq-title">
+      <section class="section section--alt" id="faq" aria-labelledby="faq-title">
         <div class="shell">
           <header class="section__head">
             <div>
@@ -492,6 +810,39 @@
           </header>
 
           <div class="faq">
+            <article class="faq__item">
+              <h3>Is this an alternative to Fingerprint (fingerprint.com)?</h3>
+              <p>
+                For many teams, yes. You get a persistent <code>visitorId</code> with a confidence
+                score and smart signals, a server API (<code>getEvent</code>,
+                <code>searchEvents</code>, <code>deleteVisitor</code>), sealed results and
+                webhooks via <code>onEvent</code>. You host it, so there is no per-call bill.
+                Fingerprint has a cross-customer dataset and published accuracy figures;
+                bot-signal's accuracy has not been independently measured yet.
+              </p>
+            </article>
+
+            <article class="faq__item">
+              <h3>How is the invisible challenge different from a CAPTCHA?</h3>
+              <p>
+                Nobody solves anything by hand. Risky visitors' browsers find a SHA-256 nonce for a
+                signed, expiring challenge, usually in well under a second. Difficulty rises with
+                the suspect score. It does not stop one determined bot, but it makes abuse at
+                volume pay in CPU time, and clear automation is blocked outright.
+              </p>
+            </article>
+
+            <article class="faq__item">
+              <h3>What about GDPR and privacy?</h3>
+              <p>
+                Data stays on your servers. Components are stored only as HMAC digests salted per
+                deployment, so IDs cannot be linked across sites, and
+                <code>deleteVisitor()</code> handles erasure requests. EU rules on accessing device
+                information still apply; fraud prevention is commonly argued as a legitimate
+                interest, but check with your DPO.
+              </p>
+            </article>
+
             <article class="faq__item">
               <h3>Can bot-signal detect headless Chrome?</h3>
               <p>

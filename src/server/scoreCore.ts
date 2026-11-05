@@ -1,0 +1,207 @@
+import { createAutomationAssessment } from "../automation.js";
+import { getBotUserAgentKind } from "../userAgent.js";
+import { buildServerSignals } from "./analysis.js";
+import type {
+  ConfidenceLevel,
+  ServerClientContext,
+  ServerClientResult,
+  ServerDetectorOptions,
+  ServerSignal,
+} from "./types.js";
+import type { EnrichedServerContext } from "./enrich.js";
+import {
+  findTlsFingerprintEntry,
+  getUserAgentFamily,
+  isTlsUserAgentMismatch,
+  KNOWN_SUSPICIOUS_TLS_FINGERPRINTS,
+} from "./tls.js";
+import type { TlsFingerprintEntry } from "./tls.js";
+
+/**
+ * Combines triggered signal weights into one score:
+ * `1 - Π(1 - weightᵢ)` — independent-probability union, so extra signals
+ * always raise the score but never past 1.
+ * @internal
+ */
+export function aggregateServerSuspicionScore(signals: ServerSignal[]): number {
+  const triggered = signals.filter((signal) => signal.triggered);
+
+  if (triggered.length === 0) {
+    return 0;
+  }
+
+  let score = 1;
+
+  for (const signal of triggered) {
+    score *= 1 - signal.weight;
+  }
+
+  return 1 - score;
+}
+
+/**
+ * Confidence in the verdict based on high-confidence signal hits and score.
+ * @internal
+ */
+export function resolveServerConfidence(
+  signals: ServerSignal[],
+  suspicionScore: number,
+): ConfidenceLevel {
+  const triggeredHigh = signals.filter(
+    (signal) => signal.triggered && signal.confidence === "high",
+  ).length;
+
+  if (triggeredHigh >= 1 || suspicionScore >= 0.7) {
+    return "high";
+  }
+
+  if (suspicionScore >= 0.35) {
+    return "medium";
+  }
+
+  return "low";
+}
+
+function buildResultContext(
+  context: EnrichedServerContext,
+): ServerClientResult["context"] {
+  return {
+    clientIp: context.clientIp,
+    ipTimezone: context.ipTimezone,
+    clientTimezone: context.clientTimezone,
+    tlsFingerprint: context.tlsFingerprint,
+    tlsFingerprintType: context.tlsFingerprintType,
+    userAgent: context.userAgent,
+    clientUserAgent: context.clientUserAgent,
+    acceptLanguage: context.acceptLanguage,
+    clientLanguage: context.clientLanguage,
+    clientLanguages: context.clientLanguages,
+    clientPlatform: context.clientPlatform,
+    secChUa: context.secChUa,
+    secChUaPlatform: context.secChUaPlatform,
+    secChUaMobile: context.secChUaMobile,
+    secFetchSite: context.secFetchSite,
+    secFetchMode: context.secFetchMode,
+    secFetchDest: context.secFetchDest,
+    ipCountry: context.ipCountry,
+    isDatacenterIp: context.isDatacenterIp,
+    isAbuseListedIp: context.isAbuseListedIp,
+    isIcloudPrivateRelay: context.isIcloudPrivateRelay,
+    crawlerVerificationStatus: context.crawlerVerificationStatus,
+    datacenterProvider: context.datacenterProvider,
+    icloudRelayCountry: context.icloudRelayCountry,
+  };
+}
+
+function classifyServerAutomation(
+  context: ServerClientContext,
+  suspiciousTlsFingerprints: string[],
+  suspiciousTlsFingerprintEntries: TlsFingerprintEntry[],
+) {
+  const crawlerVerificationEvidence =
+    context.crawlerVerificationStatus === "verified"
+      ? "Trusted edge verified an automated crawler identity"
+      : context.crawlerVerificationStatus === "spoofed"
+        ? "Trusted edge conclusively rejected the claimed crawler identity"
+        : undefined;
+  const uaFamily = getUserAgentFamily(context.userAgent);
+  const tlsEntry = context.tlsFingerprint
+    ? findTlsFingerprintEntry(
+        context.tlsFingerprint,
+        suspiciousTlsFingerprints,
+        context.tlsFingerprintType,
+        suspiciousTlsFingerprintEntries,
+      )
+    : undefined;
+  const hasFamilyLabel = Boolean(
+    tlsEntry &&
+      (KNOWN_SUSPICIOUS_TLS_FINGERPRINTS.includes(tlsEntry) ||
+        suspiciousTlsFingerprintEntries.includes(tlsEntry)),
+  );
+  const tlsSupportsUa = Boolean(
+    hasFamilyLabel &&
+      context.tlsFingerprint &&
+      context.userAgent &&
+      !isTlsUserAgentMismatch(
+        context.tlsFingerprint,
+        context.userAgent,
+        suspiciousTlsFingerprints,
+        context.tlsFingerprintType,
+        suspiciousTlsFingerprintEntries,
+      ),
+  );
+  if (["curl", "python", "go", "java"].includes(uaFamily)) {
+    return createAutomationAssessment(
+      true,
+      uaFamily as "curl" | "python" | "go" | "java",
+      crawlerVerificationEvidence ? "high" : "medium",
+      [
+        `User-Agent claims ${uaFamily}`,
+        ...(crawlerVerificationEvidence ? [crawlerVerificationEvidence] : []),
+        ...(tlsSupportsUa ? [`TLS fingerprint is compatible with ${uaFamily}`] : []),
+      ],
+    );
+  }
+
+  const botUaKind = getBotUserAgentKind(context.userAgent);
+  if (botUaKind) {
+    const alternatives = botUaKind === "browser-automation"
+      ? ["patchright", "playwright", "puppeteer", "selenium"] as const
+      : [];
+    return createAutomationAssessment(
+      true,
+      botUaKind === "crawler" || botUaKind === "http-client"
+        ? "unknown"
+        : botUaKind,
+      "high",
+      [
+        `User-Agent claims ${botUaKind}`,
+        ...(crawlerVerificationEvidence ? [crawlerVerificationEvidence] : []),
+        ...(tlsSupportsUa && uaFamily !== "unknown"
+          ? [`TLS fingerprint is compatible with ${uaFamily}`]
+          : []),
+      ],
+      [...alternatives],
+    );
+  }
+
+  if (crawlerVerificationEvidence) {
+    return createAutomationAssessment(
+      true,
+      "unknown",
+      "high",
+      [crawlerVerificationEvidence],
+    );
+  }
+
+  return createAutomationAssessment(false, "unknown", "low", []);
+}
+
+/**
+ * Scores an already-enriched request context synchronously. Use this when you
+ * have your own GeoIP/blocklist pipeline; otherwise prefer
+ * {@link detectServerClientAsync}, which fills the context from `clientIp`.
+ */
+export function detectServerClient(
+  context: ServerClientContext,
+  options: ServerDetectorOptions = {},
+): ServerClientResult {
+  const scoreThreshold = options.scoreThreshold ?? 0.5;
+  const signals = buildServerSignals(context, options);
+  const suspicionScore = aggregateServerSuspicionScore(signals);
+  const confidence = resolveServerConfidence(signals, suspicionScore);
+  const isLegitClient = suspicionScore < scoreThreshold;
+
+  return {
+    suspicionScore,
+    confidence,
+    signals,
+    isLegitClient,
+    automation: classifyServerAutomation(
+      context,
+      options.suspiciousTlsFingerprints ?? [],
+      options.suspiciousTlsFingerprintEntries ?? [],
+    ),
+    context: buildResultContext(context),
+  };
+}
